@@ -9,6 +9,7 @@ import {
   isPositiveAmount,
   isValidDateString,
 } from '../shared/finance.ts';
+import { formatFirebaseErrorForUser } from '../lib/firestoreStore.ts';
 
 function getTodayDateString(): string {
   const now = new Date();
@@ -106,7 +107,7 @@ export function ExpenseModal({
       });
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan pengeluaran.');
+      setError(formatFirebaseErrorForUser(err, 'Gagal menyimpan pengeluaran.'));
     } finally {
       setSubmitting(false);
     }
@@ -374,7 +375,7 @@ export function IncomeModal({
       });
       onClose();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Gagal menyimpan pemasukan.');
+      setError(formatFirebaseErrorForUser(err, 'Gagal menyimpan pemasukan.'));
     } finally {
       setSubmitting(false);
     }

@@ -27,7 +27,7 @@ interface DashboardViewProps {
   loading: boolean;
   onAddExpense: () => void;
   onAddIncome: () => void;
-  onNavigate: (tab: 'expenses' | 'income' | 'reports' | 'sheets') => void;
+  onNavigate: (tab: 'expenses' | 'income' | 'reports') => void;
 }
 
 export function DashboardView({

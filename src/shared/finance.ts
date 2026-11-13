@@ -75,6 +75,7 @@ export interface UserProfile {
 
 export interface ExpenseItem {
   id: number;
+  docId?: string;
   externalId: string;
   userId: number;
   date: string;
@@ -90,6 +91,7 @@ export interface ExpenseItem {
 
 export interface IncomeItem {
   id: number;
+  docId?: string;
   externalId: string;
   userId: number;
   date: string;

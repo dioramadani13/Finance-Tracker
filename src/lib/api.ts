@@ -1,4 +1,3 @@
-import { getFirebaseIdToken, getGoogleAccessToken } from './firebase.ts';
 import {
   ExpenseItem,
   FinancialSummaryResponse,
@@ -8,33 +7,18 @@ import {
 
 export class ApiError extends Error {
   status: number;
-  code?: string;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number) {
     super(message);
     this.status = status;
-    this.code = code;
   }
 }
 
-async function apiFetch<T>(
-  path: string,
-  options: RequestInit = {},
-  includeGoogleToken = false
-): Promise<T> {
-  const idToken = await getFirebaseIdToken();
+async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${idToken}`,
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   };
-
-  if (includeGoogleToken) {
-    const googleToken = getGoogleAccessToken();
-    if (googleToken) {
-      headers['X-Google-Access-Token'] = googleToken;
-    }
-  }
 
   const response = await fetch(path, {
     ...options,
@@ -43,11 +27,7 @@ async function apiFetch<T>(
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(
-      data.error || 'Terjadi kesalahan pada server.',
-      response.status,
-      data.code
-    );
+    throw new ApiError(data.error || 'Terjadi kesalahan pada server.', response.status);
   }
   return data as T;
 }
@@ -60,7 +40,6 @@ export const api = {
     initialBalance?: number;
     currency?: string;
     monthlyBudget?: number;
-    autoSyncPrompt?: boolean;
   }) =>
     apiFetch<{ user: UserProfile }>('/api/settings', {
       method: 'PUT',
@@ -174,62 +153,5 @@ export const api = {
   deleteIncome: (id: number) =>
     apiFetch<{ deleted: boolean }>(`/api/incomes/${id}`, {
       method: 'DELETE',
-    }),
-
-  createSpreadsheet: (title?: string) =>
-    apiFetch<{
-      user: UserProfile;
-      syncResult: {
-        spreadsheetId: string;
-        spreadsheetUrl: string;
-        spreadsheetName: string;
-        syncedCounts: { incomes: number; expenses: number; monthlySummaries: number };
-      };
-    }>(
-      '/api/sheets/create',
-      {
-        method: 'POST',
-        body: JSON.stringify({ title }),
-      },
-      true
-    ),
-
-  connectSpreadsheet: (spreadsheetId: string) =>
-    apiFetch<{
-      user: UserProfile;
-      metadata: {
-        spreadsheetId: string;
-        title: string;
-        spreadsheetUrl: string;
-      };
-    }>(
-      '/api/sheets/connect',
-      {
-        method: 'POST',
-        body: JSON.stringify({ spreadsheetId }),
-      },
-      true
-    ),
-
-  syncSpreadsheet: () =>
-    apiFetch<{
-      user: UserProfile;
-      syncResult: {
-        spreadsheetId: string;
-        spreadsheetUrl: string;
-        spreadsheetName: string;
-        syncedCounts: { incomes: number; expenses: number; monthlySummaries: number };
-      };
-    }>(
-      '/api/sheets/sync',
-      {
-        method: 'POST',
-      },
-      true
-    ),
-
-  disconnectSpreadsheet: () =>
-    apiFetch<{ user: UserProfile }>('/api/sheets/disconnect', {
-      method: 'POST',
     }),
 };

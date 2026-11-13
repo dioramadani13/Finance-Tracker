@@ -1,0 +1,245 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && isEmailVerified() && request.auth.uid == userId;
+    }
+
+    // 3. Validation Blueprints (Anti-Update-Gap & Strict Keys)
+    function isValidUser(data) {
+      return data.keys().hasAll([
+          'uid',
+          'email',
+          'displayName',
+          'initialBalance',
+          'currency',
+          'monthlyBudget',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'initialBalance',
+          'currency',
+          'monthlyBudget',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.uid is string &&
+        data.uid.size() >= 1 &&
+        data.uid.size() <= 128 &&
+        data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.uid == request.auth.uid &&
+        data.email is string &&
+        data.email.size() >= 3 &&
+        data.email.size() <= 200 &&
+        data.displayName is string &&
+        data.displayName.size() <= 80 &&
+        data.initialBalance is number &&
+        data.initialBalance >= 0 &&
+        data.initialBalance <= 1000000000000 &&
+        data.currency is string &&
+        data.currency.size() >= 3 &&
+        data.currency.size() <= 8 &&
+        data.currency in ['IDR', 'USD', 'SGD', 'MYR'] &&
+        data.monthlyBudget is number &&
+        data.monthlyBudget >= 0 &&
+        data.monthlyBudget <= 1000000000000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll([
+          'type',
+          'amount',
+          'category',
+          'note',
+          'date',
+          'title',
+          'subType',
+          'paymentMethod',
+          'externalId',
+          'userId',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'type',
+          'amount',
+          'category',
+          'note',
+          'date',
+          'title',
+          'subType',
+          'paymentMethod',
+          'externalId',
+          'userId',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.type is string &&
+        data.type.size() <= 16 &&
+        data.type in ['income', 'expense'] &&
+        data.amount is number &&
+        data.amount > 0 &&
+        data.amount <= 1000000000000 &&
+        data.category is string &&
+        data.category.size() >= 1 &&
+        data.category.size() <= 40 &&
+        (
+          (data.type == 'expense' && data.category in [
+            'Makanan dan minuman',
+            'Transportasi',
+            'Kebutuhan sehari-hari',
+            'Pendidikan',
+            'Hiburan',
+            'Kesehatan',
+            'Tagihan',
+            'Orang tua',
+            'Tabungan dan investasi',
+            'Lainnya'
+          ]) ||
+          (data.type == 'income' && data.category in [
+            'Gaji',
+            'Freelance',
+            'Bisnis',
+            'Bonus',
+            'Pendapatan lainnya'
+          ])
+        ) &&
+        data.note is string &&
+        data.note.size() <= 300 &&
+        data.date is string &&
+        data.date.size() == 10 &&
+        data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.title is string &&
+        data.title.size() >= 1 &&
+        data.title.size() <= 140 &&
+        data.subType is string &&
+        data.subType.size() <= 20 &&
+        data.subType in ['', 'Tabungan', 'Investasi'] &&
+        ((data.type == 'expense' && data.category == 'Tabungan dan investasi') || data.subType == '') &&
+        data.paymentMethod is string &&
+        data.paymentMethod.size() <= 32 &&
+        (
+          (data.type == 'expense' && data.paymentMethod in [
+            'Tunai',
+            'Transfer Bank',
+            'QRIS',
+            'E-Wallet',
+            'Kartu Debit',
+            'Kartu Kredit'
+          ]) ||
+          (data.type == 'income' && data.paymentMethod == '')
+        ) &&
+        data.externalId is string &&
+        data.externalId.size() >= 4 &&
+        data.externalId.size() <= 64 &&
+        data.externalId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userId is string &&
+        data.userId.size() >= 1 &&
+        data.userId.size() <= 128 &&
+        data.userId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userId == request.auth.uid &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. User Profile & Financial Configuration (/users/{userId})
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUser(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'email',
+          'initialBalance',
+          'currency',
+          'monthlyBudget',
+          'updatedAt'
+        ]);
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // 5. Unified Transactions Subcollection (/users/{userId}/transactions/{transactionId})
+      match /transactions/{transactionId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(transactionId) &&
+          exists(/databases/$(database)/documents/users/$(userId));
+        allow list: if isOwner(userId) &&
+          isValidId(userId) &&
+          existing().userId == request.auth.uid;
+        allow create: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(transactionId) &&
+          isValidTransaction(incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(transactionId) &&
+          isValidTransaction(incoming()) &&
+          incoming().type == existing().type &&
+          incoming().userId == existing().userId &&
+          incoming().externalId == existing().externalId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'date',
+            'title',
+            'category',
+            'subType',
+            'paymentMethod',
+            'amount',
+            'note',
+            'updatedAt'
+          ]) &&
+          exists(/databases/$(database)/documents/users/$(userId));
+        allow delete: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(transactionId) &&
+          exists(/databases/$(database)/documents/users/$(userId));
+      }
+    }
+  }
+}

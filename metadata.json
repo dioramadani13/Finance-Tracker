@@ -1,6 +1,6 @@
 {
   "name": "Personal Finance Tracker",
-  "description": "Platform manajemen keuangan pribadi untuk mencatat pengeluaran harian, pemasukan bulanan, laporan keuangan, dan sinkronisasi Google Sheets.",
+  "description": "Platform manajemen keuangan pribadi untuk mencatat pengeluaran harian, pemasukan bulanan, dan laporan keuangan.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

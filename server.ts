@@ -1,16 +1,14 @@
 import 'dotenv/config';
-import express, { Response } from 'express';
+import express, { Request, Response } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
-import { requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import { getOrCreateUser, updateUserSettings } from './src/db/users.ts';
 import {
   createExpense,
   createIncome,
   deleteExpense,
   deleteIncome,
-  getAllUserTransactions,
   getFinancialSummary,
   listExpenses,
   listIncomes,
@@ -24,65 +22,46 @@ import {
   isPositiveAmount,
   isValidDateString,
 } from './src/shared/finance.ts';
-import {
-  SheetsApiError,
-  createFinanceSpreadsheet,
-  getSpreadsheetMetadata,
-  syncFinanceDataToSheets,
-} from './src/services/googleSheetsServer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DEFAULT_WORKSPACE_UID = 'default-workspace';
+const DEFAULT_WORKSPACE_EMAIL = 'workspace@local';
+
 const app = express();
 app.use(express.json());
 
-async function resolveCurrentUser(req: AuthRequest) {
-  const uid = req.user!.uid;
-  const email = req.user!.email || 'user@example.com';
-  const displayName = (req.user!.name as string | undefined) || '';
-  const photoUrl = (req.user!.picture as string | undefined) || '';
-  return await getOrCreateUser(uid, email, displayName, photoUrl);
-}
-
-function extractSpreadsheetId(input: string): string {
-  const trimmed = input.trim();
-  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (match && match[1]) return match[1];
-  return trimmed;
+async function resolveWorkspaceUser() {
+  return await getOrCreateUser(
+    DEFAULT_WORKSPACE_UID,
+    DEFAULT_WORKSPACE_EMAIL,
+    'Personal Finance'
+  );
 }
 
 function handleRouteError(res: Response, error: unknown, fallback: string) {
-  if (error instanceof SheetsApiError) {
-    return res.status(error.status).json({
-      error: error.message,
-      code: error.code,
-    });
-  }
   console.error(fallback, error);
   return res.status(500).json({ error: fallback });
 }
 
-// Health check
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// User profile & settings
-app.get('/api/me', requireAuth, async (req: AuthRequest, res: Response) => {
+app.get('/api/me', async (_req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     res.json({ user });
   } catch (error) {
     handleRouteError(res, error, 'Gagal memuat profil pengguna.');
   }
 });
 
-app.put('/api/settings', requireAuth, async (req: AuthRequest, res: Response) => {
+app.put('/api/settings', async (req: Request, res: Response) => {
   try {
-    await resolveCurrentUser(req);
-    const { displayName, initialBalance, currency, monthlyBudget, autoSyncPrompt } =
-      req.body ?? {};
+    await resolveWorkspaceUser();
+    const { displayName, initialBalance, currency, monthlyBudget } = req.body ?? {};
 
     const updates: Parameters<typeof updateUserSettings>[1] = {};
     if (typeof displayName === 'string') updates.displayName = displayName.trim().slice(0, 80);
@@ -95,21 +74,17 @@ app.put('/api/settings', requireAuth, async (req: AuthRequest, res: Response) =>
     if (typeof monthlyBudget === 'number' && Number.isFinite(monthlyBudget) && monthlyBudget >= 0) {
       updates.monthlyBudget = monthlyBudget;
     }
-    if (typeof autoSyncPrompt === 'boolean') {
-      updates.autoSyncPrompt = autoSyncPrompt;
-    }
 
-    const updated = await updateUserSettings(req.user!.uid, updates);
+    const updated = await updateUserSettings(DEFAULT_WORKSPACE_UID, updates);
     res.json({ user: updated });
   } catch (error) {
     handleRouteError(res, error, 'Gagal memperbarui pengaturan.');
   }
 });
 
-// Dashboard & Financial Summary
-app.get('/api/summary', requireAuth, async (req: AuthRequest, res: Response) => {
+app.get('/api/summary', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const now = new Date();
     const month = Number(req.query.month) || now.getMonth() + 1;
     const year = Number(req.query.year) || now.getFullYear();
@@ -130,10 +105,9 @@ app.get('/api/summary', requireAuth, async (req: AuthRequest, res: Response) => 
   }
 });
 
-// Expenses CRUD
-app.get('/api/expenses', requireAuth, async (req: AuthRequest, res: Response) => {
+app.get('/api/expenses', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const month = req.query.month ? Number(req.query.month) : undefined;
     const year = req.query.year ? Number(req.query.year) : undefined;
     const category =
@@ -157,9 +131,9 @@ app.get('/api/expenses', requireAuth, async (req: AuthRequest, res: Response) =>
   }
 });
 
-app.post('/api/expenses', requireAuth, async (req: AuthRequest, res: Response) => {
+app.post('/api/expenses', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const { date, description, category, subType, paymentMethod, amount, notes } =
       req.body ?? {};
 
@@ -194,9 +168,9 @@ app.post('/api/expenses', requireAuth, async (req: AuthRequest, res: Response) =
   }
 });
 
-app.put('/api/expenses/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+app.put('/api/expenses/:id', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'ID transaksi tidak valid.' });
@@ -239,9 +213,9 @@ app.put('/api/expenses/:id', requireAuth, async (req: AuthRequest, res: Response
   }
 });
 
-app.delete('/api/expenses/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+app.delete('/api/expenses/:id', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'ID transaksi tidak valid.' });
@@ -256,10 +230,9 @@ app.delete('/api/expenses/:id', requireAuth, async (req: AuthRequest, res: Respo
   }
 });
 
-// Incomes CRUD
-app.get('/api/incomes', requireAuth, async (req: AuthRequest, res: Response) => {
+app.get('/api/incomes', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const month = req.query.month ? Number(req.query.month) : undefined;
     const year = req.query.year ? Number(req.query.year) : undefined;
     const category =
@@ -283,9 +256,9 @@ app.get('/api/incomes', requireAuth, async (req: AuthRequest, res: Response) => 
   }
 });
 
-app.post('/api/incomes', requireAuth, async (req: AuthRequest, res: Response) => {
+app.post('/api/incomes', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const { date, source, category, amount, notes } = req.body ?? {};
 
     if (!isValidDateString(date)) {
@@ -314,9 +287,9 @@ app.post('/api/incomes', requireAuth, async (req: AuthRequest, res: Response) =>
   }
 });
 
-app.put('/api/incomes/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+app.put('/api/incomes/:id', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'ID pemasukan tidak valid.' });
@@ -353,9 +326,9 @@ app.put('/api/incomes/:id', requireAuth, async (req: AuthRequest, res: Response)
   }
 });
 
-app.delete('/api/incomes/:id', requireAuth, async (req: AuthRequest, res: Response) => {
+app.delete('/api/incomes/:id', async (req: Request, res: Response) => {
   try {
-    const user = await resolveCurrentUser(req);
+    const user = await resolveWorkspaceUser();
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: 'ID pemasukan tidak valid.' });
@@ -367,151 +340,6 @@ app.delete('/api/incomes/:id', requireAuth, async (req: AuthRequest, res: Respon
     res.json({ deleted: true });
   } catch (error) {
     handleRouteError(res, error, 'Gagal menghapus pemasukan.');
-  }
-});
-
-// Google Sheets Integration Endpoints (bearer token forwarded via X-Google-Access-Token)
-app.post('/api/sheets/create', requireAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    const user = await resolveCurrentUser(req);
-    const googleToken = req.header('X-Google-Access-Token');
-    if (!googleToken) {
-      return res.status(401).json({
-        error: 'Token akses Google Sheets belum tersedia. Silakan login ulang.',
-        code: 'SHEETS_AUTH_EXPIRED',
-      });
-    }
-
-    const title =
-      typeof req.body?.title === 'string' && req.body.title.trim()
-        ? req.body.title.trim().slice(0, 100)
-        : `Personal Finance Tracker — ${user.displayName || user.email}`;
-
-    const meta = await createFinanceSpreadsheet(googleToken, title);
-    const { expenses: allExpenses, incomes: allIncomes } =
-      await getAllUserTransactions(user.id);
-    const now = new Date();
-    const summary = await getFinancialSummary(
-      user.id,
-      user.initialBalance,
-      now.getMonth() + 1,
-      now.getFullYear()
-    );
-
-    const syncResult = await syncFinanceDataToSheets(googleToken, meta.spreadsheetId, {
-      incomes: allIncomes,
-      expenses: allExpenses,
-      monthlySummaryRows: summary.monthlySummaryRows,
-    });
-
-    const updatedUser = await updateUserSettings(user.uid, {
-      spreadsheetId: syncResult.spreadsheetId,
-      spreadsheetUrl: syncResult.spreadsheetUrl,
-      spreadsheetName: syncResult.spreadsheetName,
-      lastSyncedAt: new Date(),
-      hasUnsyncedChanges: false,
-    });
-
-    res.json({ user: updatedUser, syncResult });
-  } catch (error) {
-    handleRouteError(res, error, 'Gagal membuat Google Spreadsheet.');
-  }
-});
-
-app.post('/api/sheets/connect', requireAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    const user = await resolveCurrentUser(req);
-    const googleToken = req.header('X-Google-Access-Token');
-    if (!googleToken) {
-      return res.status(401).json({
-        error: 'Token akses Google Sheets belum tersedia. Silakan login ulang.',
-        code: 'SHEETS_AUTH_EXPIRED',
-      });
-    }
-
-    const rawId = typeof req.body?.spreadsheetId === 'string' ? req.body.spreadsheetId : '';
-    const spreadsheetId = extractSpreadsheetId(rawId);
-    if (!spreadsheetId || spreadsheetId.length < 10) {
-      return res.status(400).json({ error: 'ID atau URL Google Spreadsheet tidak valid.' });
-    }
-
-    const meta = await getSpreadsheetMetadata(googleToken, spreadsheetId);
-    const updatedUser = await updateUserSettings(user.uid, {
-      spreadsheetId: meta.spreadsheetId,
-      spreadsheetUrl: meta.spreadsheetUrl,
-      spreadsheetName: meta.title,
-      hasUnsyncedChanges: true,
-    });
-
-    res.json({ user: updatedUser, metadata: meta });
-  } catch (error) {
-    handleRouteError(res, error, 'Gagal menghubungkan Google Spreadsheet.');
-  }
-});
-
-app.post('/api/sheets/sync', requireAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    const user = await resolveCurrentUser(req);
-    const googleToken = req.header('X-Google-Access-Token');
-    if (!googleToken) {
-      return res.status(401).json({
-        error: 'Token akses Google Sheets kedaluwarsa. Silakan hubungkan ulang akun Google.',
-        code: 'SHEETS_AUTH_EXPIRED',
-      });
-    }
-
-    if (!user.spreadsheetId) {
-      return res.status(400).json({
-        error: 'Belum ada Google Spreadsheet yang terhubung.',
-        code: 'NO_SPREADSHEET_LINKED',
-      });
-    }
-
-    const { expenses: allExpenses, incomes: allIncomes } =
-      await getAllUserTransactions(user.id);
-    const now = new Date();
-    const summary = await getFinancialSummary(
-      user.id,
-      user.initialBalance,
-      now.getMonth() + 1,
-      now.getFullYear()
-    );
-
-    const syncResult = await syncFinanceDataToSheets(
-      googleToken,
-      user.spreadsheetId,
-      {
-        incomes: allIncomes,
-        expenses: allExpenses,
-        monthlySummaryRows: summary.monthlySummaryRows,
-      }
-    );
-
-    const updatedUser = await updateUserSettings(user.uid, {
-      spreadsheetName: syncResult.spreadsheetName,
-      spreadsheetUrl: syncResult.spreadsheetUrl,
-      lastSyncedAt: new Date(),
-      hasUnsyncedChanges: false,
-    });
-
-    res.json({ user: updatedUser, syncResult });
-  } catch (error) {
-    handleRouteError(res, error, 'Gagal menyinkronkan data ke Google Sheets.');
-  }
-});
-
-app.post('/api/sheets/disconnect', requireAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    const user = await resolveCurrentUser(req);
-    const updatedUser = await updateUserSettings(user.uid, {
-      spreadsheetId: '',
-      spreadsheetUrl: '',
-      spreadsheetName: '',
-      hasUnsyncedChanges: false,
-    });
-    res.json({ user: updatedUser });
-  } catch (error) {
-    handleRouteError(res, error, 'Gagal memutus koneksi spreadsheet.');
   }
 });
 

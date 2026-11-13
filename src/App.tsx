@@ -1,65 +1,68 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { User } from 'firebase/auth';
 import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
-  FileSpreadsheet,
+  Database,
   LayoutDashboard,
+  LogIn,
   LogOut,
   Menu,
   Plus,
-  Receipt,
   Settings,
   X,
 } from 'lucide-react';
-import { User } from 'firebase/auth';
 import {
-  getGoogleAccessToken,
-  googleSignIn,
-  logout,
-  refreshGoogleSheetsToken,
-  subscribeAuth,
+  signInWithFirebaseGoogle,
+  signOutFirebase,
+  subscribeAuthState,
 } from './lib/firebase.ts';
-import { api, ApiError } from './lib/api.ts';
+import {
+  firestoreStore,
+  formatFirebaseErrorForUser,
+} from './lib/firestoreStore.ts';
+import {
+  computeFinancialSummary,
+  filterExpensesList,
+  filterIncomesList,
+} from './lib/financeCompute.ts';
+import { localStore } from './lib/localStore.ts';
 import {
   ExpenseItem,
-  FinancialSummaryResponse,
   IncomeItem,
   MONTH_NAMES_ID,
   UserProfile,
 } from './shared/finance.ts';
-import { AuthScreen } from './components/AuthScreen.tsx';
 import { DashboardView } from './components/DashboardView.tsx';
 import { TransactionsView } from './components/TransactionsView.tsx';
 import { MonthlyReportsView } from './components/MonthlyReportsView.tsx';
-import { GoogleSheetsView } from './components/GoogleSheetsView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { ExpenseModal, IncomeModal } from './components/TransactionModals.tsx';
 import { ConfirmDialog } from './components/ConfirmDialog.tsx';
 
-type NavTab = 'dashboard' | 'expenses' | 'income' | 'reports' | 'sheets' | 'settings';
+type NavTab = 'dashboard' | 'expenses' | 'income' | 'reports' | 'settings';
 
 export default function App() {
   const now = new Date();
+
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [hasGoogleToken, setHasGoogleToken] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
 
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [summary, setSummary] = useState<FinancialSummaryResponse | null>(null);
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
-  const [incomes, setIncomes] = useState<IncomeItem[]>([]);
-  const [monthlyExpenses, setMonthlyExpenses] = useState<ExpenseItem[]>([]);
-  const [monthlyIncomes, setMonthlyIncomes] = useState<IncomeItem[]>([]);
+  // Firestore reactive state (when authenticated)
+  const [fbProfile, setFbProfile] = useState<UserProfile | null>(null);
+  const [fbExpenses, setFbExpenses] = useState<ExpenseItem[]>([]);
+  const [fbIncomes, setFbIncomes] = useState<IncomeItem[]>([]);
+  const [loadingCloud, setLoadingCloud] = useState(false);
+
+  // Local workspace revision trigger (when signed out)
+  const [localVersion, setLocalVersion] = useState(0);
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
-
-  const [loadingData, setLoadingData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
 
   const [txFilters, setTxFilters] = useState({
@@ -70,13 +73,11 @@ export default function App() {
     useMonthScope: true,
   });
 
-  // Modals state
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<ExpenseItem | null>(null);
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<IncomeItem | null>(null);
 
-  // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<
     | { kind: 'expense'; item: ExpenseItem }
     | { kind: 'income'; item: IncomeItem }
@@ -84,136 +85,194 @@ export default function App() {
   >(null);
   const [deleting, setDeleting] = useState(false);
 
-  const loadCoreData = useCallback(
-    async (month: number, year: number) => {
-      setLoadingData(true);
-      setDataError(null);
-      try {
-        const [summaryRes, mExpensesRes, mIncomesRes] = await Promise.all([
-          api.getSummary(month, year),
-          api.listExpenses({ month, year }),
-          api.listIncomes({ month, year }),
-        ]);
-        setSummary(summaryRes.summary);
-        setProfile(summaryRes.user);
-        setMonthlyExpenses(mExpensesRes.expenses);
-        setMonthlyIncomes(mIncomesRes.incomes);
-      } catch (err: unknown) {
-        setDataError(
-          err instanceof Error ? err.message : 'Gagal memuat data keuangan.'
-        );
-      } finally {
-        setLoadingData(false);
-      }
-    },
-    []
-  );
-
-  const loadFilteredTransactions = useCallback(
-    async (
-      mode: 'expenses' | 'income',
-      month: number,
-      year: number,
-      filters: typeof txFilters
-    ) => {
-      try {
-        const params = filters.useMonthScope
-          ? {
-              month,
-              year,
-              category: filters.category,
-              search: filters.search,
-            }
-          : {
-              startDate: filters.startDate || undefined,
-              endDate: filters.endDate || undefined,
-              category: filters.category,
-              search: filters.search,
-            };
-
-        if (mode === 'expenses') {
-          const res = await api.listExpenses(params);
-          setExpenses(res.expenses);
-        } else {
-          const res = await api.listIncomes(params);
-          setIncomes(res.incomes);
-        }
-      } catch (err: unknown) {
-        setDataError(
-          err instanceof Error ? err.message : 'Gagal memuat daftar transaksi.'
-        );
-      }
-    },
-    []
-  );
-
+  // 1. Subscribe to Firebase Auth State
   useEffect(() => {
-    const unsub = subscribeAuth(
-      (user) => {
-        setAuthUser(user);
-        setHasGoogleToken(Boolean(getGoogleAccessToken()));
-        setAuthReady(true);
-      },
-      () => {
-        setAuthUser(null);
-        setProfile(null);
-        setSummary(null);
-        setHasGoogleToken(false);
-        setAuthReady(true);
+    const unsub = subscribeAuthState((user) => {
+      setAuthUser(user);
+      setAuthReady(true);
+      if (!user) {
+        setFbProfile(null);
+        setFbExpenses([]);
+        setFbIncomes([]);
+        setLoadingCloud(false);
       }
-    );
+    });
     return () => unsub();
   }, []);
 
+  // 2. Attach Firestore real-time onSnapshot listeners ONLY when authenticated
   useEffect(() => {
-    if (!authUser) return;
-    loadCoreData(selectedMonth, selectedYear);
-  }, [authUser, selectedMonth, selectedYear, loadCoreData]);
+    if (!authReady || !authUser) return;
 
-  useEffect(() => {
-    if (!authUser) return;
-    if (activeTab === 'expenses' || activeTab === 'income') {
-      loadFilteredTransactions(activeTab, selectedMonth, selectedYear, txFilters);
+    let cancelled = false;
+    let unsubscribeWorkspace: (() => void) | null = null;
+    setLoadingCloud(true);
+    setDataError(null);
+
+    firestoreStore
+      .ensureUserProfile(authUser)
+      .then((initialProfile) => {
+        if (cancelled) return;
+        setFbProfile(initialProfile);
+        unsubscribeWorkspace = firestoreStore.subscribeWorkspace(authUser, {
+          onProfile: (nextProfile) => {
+            if (!cancelled) {
+              setFbProfile(nextProfile);
+              setLoadingCloud(false);
+            }
+          },
+          onTransactions: ({ expenses: nextExpenses, incomes: nextIncomes }) => {
+            if (!cancelled) {
+              setFbExpenses(nextExpenses);
+              setFbIncomes(nextIncomes);
+              setLoadingCloud(false);
+            }
+          },
+          onError: (err) => {
+            if (!cancelled) {
+              setLoadingCloud(false);
+              setDataError(
+                formatFirebaseErrorForUser(err, 'Gagal membaca data real-time dari Firestore.')
+              );
+            }
+          },
+        });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setLoadingCloud(false);
+          setDataError(
+            formatFirebaseErrorForUser(err, 'Gagal menghubungkan ke Firebase Firestore.')
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (unsubscribeWorkspace) {
+        unsubscribeWorkspace();
+      }
+    };
+  }, [authReady, authUser]);
+
+  const isCloudMode = Boolean(authUser);
+
+  // Derived active profile, summary, and filtered lists
+  const { profile, summary, expenses, incomes, monthlyExpenses, monthlyIncomes } = useMemo(() => {
+    if (isCloudMode) {
+      const activeProfile: UserProfile = fbProfile ?? {
+        id: 1,
+        uid: authUser!.uid,
+        email: authUser!.email || '',
+        displayName: authUser!.displayName || 'Pengguna',
+        photoUrl: authUser!.photoURL || '',
+        initialBalance: 0,
+        currency: 'IDR',
+        monthlyBudget: 0,
+        spreadsheetId: '',
+        spreadsheetUrl: '',
+        spreadsheetName: '',
+        autoSyncPrompt: false,
+        lastSyncedAt: null,
+        hasUnsyncedChanges: false,
+      };
+      const filterParams = txFilters.useMonthScope
+        ? {
+            month: selectedMonth,
+            year: selectedYear,
+            category: txFilters.category,
+            search: txFilters.search,
+          }
+        : {
+            startDate: txFilters.startDate || undefined,
+            endDate: txFilters.endDate || undefined,
+            category: txFilters.category,
+            search: txFilters.search,
+          };
+
+      return {
+        profile: activeProfile,
+        summary: computeFinancialSummary(
+          activeProfile,
+          fbExpenses,
+          fbIncomes,
+          selectedMonth,
+          selectedYear
+        ),
+        expenses: filterExpensesList(fbExpenses, filterParams),
+        incomes: filterIncomesList(fbIncomes, filterParams),
+        monthlyExpenses: filterExpensesList(fbExpenses, {
+          month: selectedMonth,
+          year: selectedYear,
+        }),
+        monthlyIncomes: filterIncomesList(fbIncomes, {
+          month: selectedMonth,
+          year: selectedYear,
+        }),
+      };
     }
+
+    // Local guest fallback when not signed in
+    void localVersion;
+    const localSummaryRes = localStore.getSummary(selectedMonth, selectedYear);
+    const filterParams = txFilters.useMonthScope
+      ? {
+          month: selectedMonth,
+          year: selectedYear,
+          category: txFilters.category,
+          search: txFilters.search,
+        }
+      : {
+          startDate: txFilters.startDate || undefined,
+          endDate: txFilters.endDate || undefined,
+          category: txFilters.category,
+          search: txFilters.search,
+        };
+
+    return {
+      profile: localSummaryRes.user,
+      summary: localSummaryRes.summary,
+      expenses: localStore.listExpenses(filterParams),
+      incomes: localStore.listIncomes(filterParams),
+      monthlyExpenses: localStore.listExpenses({ month: selectedMonth, year: selectedYear }),
+      monthlyIncomes: localStore.listIncomes({ month: selectedMonth, year: selectedYear }),
+    };
   }, [
+    isCloudMode,
     authUser,
-    activeTab,
+    fbProfile,
+    fbExpenses,
+    fbIncomes,
+    localVersion,
     selectedMonth,
     selectedYear,
     txFilters,
-    loadFilteredTransactions,
   ]);
 
   const handleSignIn = async () => {
-    setAuthLoading(true);
-    setAuthError(null);
+    setAuthBusy(true);
+    setDataError(null);
     try {
-      const res = await googleSignIn();
-      setAuthUser(res.user);
-      setHasGoogleToken(Boolean(res.googleAccessToken));
+      await signInWithFirebaseGoogle();
     } catch (err: unknown) {
-      setAuthError(
-        err instanceof Error
-          ? err.message
-          : 'Gagal masuk dengan Google. Pastikan popup tidak diblokir.'
-      );
+      const code = (err as { code?: string })?.code;
+      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+        setDataError(formatFirebaseErrorForUser(err, 'Gagal masuk ke akun Google Firebase.'));
+      }
     } finally {
-      setAuthLoading(false);
+      setAuthBusy(false);
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-    setAuthUser(null);
-    setProfile(null);
-    setSummary(null);
-    setHasGoogleToken(false);
-  };
-
-  const handleRefreshAll = async () => {
-    await loadCoreData(selectedMonth, selectedYear);
-    if (activeTab === 'expenses' || activeTab === 'income') {
-      await loadFilteredTransactions(activeTab, selectedMonth, selectedYear, txFilters);
+  const handleSignOut = async () => {
+    setAuthBusy(true);
+    setDataError(null);
+    try {
+      await signOutFirebase();
+    } catch (err: unknown) {
+      setDataError(formatFirebaseErrorForUser(err, 'Gagal keluar dari akun.'));
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -226,12 +285,29 @@ export default function App() {
     amount: number;
     notes?: string;
   }) => {
-    if (editingExpense) {
-      await api.updateExpense(editingExpense.id, payload);
-    } else {
-      await api.createExpense(payload);
+    if (authUser) {
+      try {
+        if (editingExpense) {
+          const docId = editingExpense.docId || editingExpense.externalId;
+          await firestoreStore.updateExpense(authUser.uid, docId, payload);
+        } else {
+          await firestoreStore.createExpense(authUser.uid, payload);
+        }
+        setDataError(null);
+      } catch (err: unknown) {
+        const readable = formatFirebaseErrorForUser(err, 'Gagal menyimpan pengeluaran ke Firestore.');
+        setDataError(readable);
+        throw new Error(readable);
+      }
+      return;
     }
-    await handleRefreshAll();
+
+    if (editingExpense) {
+      localStore.updateExpense(editingExpense.id, payload);
+    } else {
+      localStore.createExpense(payload);
+    }
+    setLocalVersion((v) => v + 1);
   };
 
   const handleSaveIncome = async (payload: {
@@ -241,27 +317,50 @@ export default function App() {
     amount: number;
     notes?: string;
   }) => {
-    if (editingIncome) {
-      await api.updateIncome(editingIncome.id, payload);
-    } else {
-      await api.createIncome(payload);
+    if (authUser) {
+      try {
+        if (editingIncome) {
+          const docId = editingIncome.docId || editingIncome.externalId;
+          await firestoreStore.updateIncome(authUser.uid, docId, payload);
+        } else {
+          await firestoreStore.createIncome(authUser.uid, payload);
+        }
+        setDataError(null);
+      } catch (err: unknown) {
+        const readable = formatFirebaseErrorForUser(err, 'Gagal menyimpan pemasukan ke Firestore.');
+        setDataError(readable);
+        throw new Error(readable);
+      }
+      return;
     }
-    await handleRefreshAll();
+
+    if (editingIncome) {
+      localStore.updateIncome(editingIncome.id, payload);
+    } else {
+      localStore.createIncome(payload);
+    }
+    setLocalVersion((v) => v + 1);
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      if (deleteTarget.kind === 'expense') {
-        await api.deleteExpense(deleteTarget.item.id);
+      if (authUser) {
+        const docId = deleteTarget.item.docId || deleteTarget.item.externalId;
+        await firestoreStore.deleteTransaction(authUser.uid, docId);
       } else {
-        await api.deleteIncome(deleteTarget.item.id);
+        if (deleteTarget.kind === 'expense') {
+          localStore.deleteExpense(deleteTarget.item.id);
+        } else {
+          localStore.deleteIncome(deleteTarget.item.id);
+        }
+        setLocalVersion((v) => v + 1);
       }
       setDeleteTarget(null);
-      await handleRefreshAll();
+      setDataError(null);
     } catch (err: unknown) {
-      setDataError(err instanceof Error ? err.message : 'Gagal menghapus transaksi.');
+      setDataError(formatFirebaseErrorForUser(err, 'Gagal menghapus transaksi dari Firestore.'));
     } finally {
       setDeleting(false);
     }
@@ -280,32 +379,6 @@ export default function App() {
     []
   );
 
-  const handleSheetsTokenRefresh = async () => {
-    await refreshGoogleSheetsToken();
-    setHasGoogleToken(true);
-  };
-
-  const handleSheetsError = (err: unknown) => {
-    if (err instanceof ApiError && err.code === 'SHEETS_AUTH_EXPIRED') {
-      setHasGoogleToken(false);
-    }
-    throw err;
-  };
-
-  if (!authReady) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-600">
-        Memuat Personal Finance Tracker...
-      </div>
-    );
-  }
-
-  if (!authUser) {
-    return (
-      <AuthScreen onSignIn={handleSignIn} loading={authLoading} error={authError} />
-    );
-  }
-
   const currentYear = now.getFullYear();
   const yearOptions = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1];
 
@@ -314,7 +387,6 @@ export default function App() {
     expenses: 'Transactions / Expenses',
     income: 'Transactions / Income',
     reports: 'Monthly Reports',
-    sheets: 'Google Sheets Integration',
     settings: 'Settings',
   };
 
@@ -408,22 +480,6 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                setActiveTab('sheets');
-                setMobileMenuOpen(false);
-              }}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
-                activeTab === 'sheets'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-            >
-              <FileSpreadsheet className="h-4 w-4 shrink-0" />
-              Google Sheets
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
                 setActiveTab('settings');
                 setMobileMenuOpen(false);
               }}
@@ -440,47 +496,62 @@ export default function App() {
         </nav>
       </div>
 
-      <div className="border-t border-slate-200 p-4">
+      <div className="border-t border-slate-200 p-4 space-y-3">
         <div className="flex items-center gap-3">
-          {authUser.photoURL ? (
+          {profile.photoUrl ? (
             <img
-              src={authUser.photoURL}
-              alt={authUser.displayName || 'Profil Pengguna'}
-              referrerPolicy="no-referrer"
+              src={profile.photoUrl}
+              alt={profile.displayName}
               className="h-9 w-9 shrink-0 rounded-full border border-slate-200 object-cover"
+              referrerPolicy="no-referrer"
             />
           ) : (
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-              {(authUser.displayName || authUser.email || 'U')[0].toUpperCase()}
+              {(profile.displayName || 'PF')[0].toUpperCase()}
             </div>
           )}
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-slate-900">
-              {profile?.displayName || authUser.displayName || 'Pengguna'}
+              {profile.displayName || 'Personal Finance'}
             </p>
-            <p className="truncate text-[11px] text-slate-500">{authUser.email}</p>
+            <p className="flex items-center gap-1 truncate text-[11px] text-slate-500">
+              <Database className="h-3 w-3 shrink-0" />
+              {isCloudMode ? 'Firebase Firestore' : 'Penyimpanan Lokal'}
+            </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          Keluar Akun
-        </button>
+
+        {isCloudMode ? (
+          <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={authBusy}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Keluar
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSignIn}
+            disabled={authBusy}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
+          >
+            <LogIn className="h-3.5 w-3.5" />
+            {authBusy ? 'Menghubungkan...' : 'Masuk dengan Google'}
+          </button>
+        )}
       </div>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex">
-      {/* Desktop Sidebar */}
       <aside className="no-print hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:block lg:sticky lg:top-0 lg:h-screen">
         {sidebarContent}
       </aside>
 
-      {/* Mobile Drawer Sidebar */}
       {mobileMenuOpen && (
         <div className="no-print fixed inset-0 z-50 flex lg:hidden">
           <div
@@ -493,10 +564,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content Area */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top Header */}
-        <header className="no-print sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-6">
+        <header className="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
@@ -515,7 +584,7 @@ export default function App() {
             {(activeTab === 'dashboard' ||
               activeTab === 'expenses' ||
               activeTab === 'income') && (
-              <div className="hidden sm:flex items-center gap-1.5">
+              <div className="hidden md:flex items-center gap-1.5">
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(Number(e.target.value))}
@@ -566,14 +635,39 @@ export default function App() {
               <Plus className="h-3.5 w-3.5" />
               <span className="hidden xs:inline">Catat </span>Pengeluaran
             </button>
+
+            {isCloudMode ? (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={authBusy}
+                title={`Masuk sebagai ${profile.email || profile.displayName}`}
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Keluar</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSignIn}
+                disabled={authBusy}
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+              >
+                <LogIn className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">
+                  {authBusy ? 'Memproses...' : 'Login Google'}
+                </span>
+                <span className="sm:hidden">{authBusy ? '...' : 'Login'}</span>
+              </button>
+            )}
           </div>
         </header>
 
-        {/* Mobile Period Selector Bar */}
         {(activeTab === 'dashboard' ||
           activeTab === 'expenses' ||
           activeTab === 'income') && (
-          <div className="no-print flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 sm:hidden">
+          <div className="no-print flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 md:hidden">
             <div className="flex items-center gap-1.5">
               <select
                 value={selectedMonth}
@@ -606,7 +700,7 @@ export default function App() {
                 setEditingIncome(null);
                 setIncomeModalOpen(true);
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-emerald-600/30 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 whitespace-nowrap"
+              className="inline-flex items-center gap-1 rounded-lg border border-emerald-600/30 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 whitespace-nowrap sm:hidden"
             >
               <Plus className="h-3.5 w-3.5" />
               Pemasukan
@@ -620,48 +714,22 @@ export default function App() {
               role="alert"
               className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800"
             >
-              <span>{dataError}</span>
+              <span className="break-words">{dataError}</span>
               <button
                 type="button"
                 onClick={() => setDataError(null)}
-                className="font-semibold hover:underline"
+                className="shrink-0 font-semibold hover:underline"
               >
                 Tutup
               </button>
             </div>
           )}
 
-          {profile &&
-            profile.spreadsheetId &&
-            profile.autoSyncPrompt &&
-            profile.hasUnsyncedChanges &&
-            activeTab !== 'sheets' && (
-              <div className="no-print mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs">
-                <div className="flex items-center gap-2.5 text-slate-700">
-                  <Receipt className="h-4 w-4 text-emerald-600 shrink-0" />
-                  <span>
-                    Ada perubahan transaksi baru yang belum disinkronkan ke{' '}
-                    <strong className="text-slate-900">
-                      {profile.spreadsheetName || 'Google Sheets'}
-                    </strong>
-                    .
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('sheets')}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap"
-                >
-                  Sinkronkan Sekarang
-                </button>
-              </div>
-            )}
-
-          {activeTab === 'dashboard' && profile && (
+          {activeTab === 'dashboard' && (
             <DashboardView
               summary={summary}
               user={profile}
-              loading={loadingData}
+              loading={loadingCloud}
               onAddExpense={() => {
                 setEditingExpense(null);
                 setExpenseModalOpen(true);
@@ -674,7 +742,7 @@ export default function App() {
             />
           )}
 
-          {(activeTab === 'expenses' || activeTab === 'income') && profile && (
+          {(activeTab === 'expenses' || activeTab === 'income') && (
             <TransactionsView
               mode={activeTab}
               onModeChange={(nextMode) => setActiveTab(nextMode)}
@@ -683,7 +751,7 @@ export default function App() {
               selectedYear={selectedYear}
               expenses={expenses}
               incomes={incomes}
-              loading={loadingData}
+              loading={loadingCloud}
               onAddExpense={() => {
                 setEditingExpense(null);
                 setExpenseModalOpen(true);
@@ -706,7 +774,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'reports' && profile && (
+          {activeTab === 'reports' && (
             <MonthlyReportsView
               summary={summary}
               user={profile}
@@ -718,67 +786,34 @@ export default function App() {
                 setSelectedMonth(m);
                 setSelectedYear(y);
               }}
-              loading={loadingData}
+              loading={loadingCloud}
             />
           )}
 
-          {activeTab === 'sheets' && profile && (
-            <GoogleSheetsView
-              user={profile}
-              hasGoogleToken={hasGoogleToken}
-              totalIncomeCount={summary?.allTimeCounts.incomes ?? 0}
-              totalExpenseCount={summary?.allTimeCounts.expenses ?? 0}
-              totalSummaryMonths={summary?.monthlySummaryRows.length ?? 0}
-              onRefreshToken={handleSheetsTokenRefresh}
-              onCreateSpreadsheet={async (title) => {
-                try {
-                  const res = await api.createSpreadsheet(title);
-                  setProfile(res.user);
-                } catch (err) {
-                  handleSheetsError(err);
-                }
-              }}
-              onConnectSpreadsheet={async (idOrUrl) => {
-                try {
-                  const res = await api.connectSpreadsheet(idOrUrl);
-                  setProfile(res.user);
-                } catch (err) {
-                  handleSheetsError(err);
-                }
-              }}
-              onSyncNow={async () => {
-                try {
-                  const res = await api.syncSpreadsheet();
-                  setProfile(res.user);
-                } catch (err) {
-                  handleSheetsError(err);
-                }
-              }}
-              onDisconnect={async () => {
-                const res = await api.disconnectSpreadsheet();
-                setProfile(res.user);
-              }}
-            />
-          )}
-
-          {activeTab === 'settings' && profile && (
+          {activeTab === 'settings' && (
             <SettingsView
               user={profile}
+              isCloudMode={isCloudMode}
+              authBusy={authBusy}
+              onSignIn={handleSignIn}
+              onSignOut={handleSignOut}
               onSaveSettings={async (payload) => {
-                const res = await api.updateSettings(payload);
-                setProfile(res.user);
-                await loadCoreData(selectedMonth, selectedYear);
+                if (authUser) {
+                  await firestoreStore.updateSettings(authUser, payload);
+                  return;
+                }
+                localStore.updateSettings(payload);
+                setLocalVersion((v) => v + 1);
               }}
             />
           )}
         </main>
       </div>
 
-      {/* Add/Edit Expense Modal */}
       <ExpenseModal
         open={expenseModalOpen}
         editing={editingExpense}
-        currency={profile?.currency || 'IDR'}
+        currency={profile.currency || 'IDR'}
         onClose={() => {
           setExpenseModalOpen(false);
           setEditingExpense(null);
@@ -786,11 +821,10 @@ export default function App() {
         onSubmit={handleSaveExpense}
       />
 
-      {/* Add/Edit Income Modal */}
       <IncomeModal
         open={incomeModalOpen}
         editing={editingIncome}
-        currency={profile?.currency || 'IDR'}
+        currency={profile.currency || 'IDR'}
         onClose={() => {
           setIncomeModalOpen(false);
           setEditingIncome(null);
@@ -798,7 +832,6 @@ export default function App() {
         onSubmit={handleSaveIncome}
       />
 
-      {/* Delete Transaction Confirmation */}
       <ConfirmDialog
         open={deleteTarget !== null}
         title={
