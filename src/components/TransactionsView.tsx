@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { Pencil, Plus, RotateCcw, Search, Tag, Trash2, X } from 'lucide-react';
 import {
-  EXPENSE_CATEGORIES,
   ExpenseItem,
-  INCOME_CATEGORIES,
   IncomeItem,
-  MONTH_NAMES_ID,
   formatCurrency,
   formatDateShort,
 } from '../shared/finance.ts';
+import {
+  LanguageCode,
+  MONTH_NAMES_BY_LANG,
+  UI_TEXT,
+  translateCategoryLabel,
+  translatePaymentMethodLabel,
+} from '../lib/i18n.ts';
 
 interface TransactionsViewProps {
   mode: 'expenses' | 'income';
@@ -18,7 +22,10 @@ interface TransactionsViewProps {
   selectedYear: number;
   expenses: ExpenseItem[];
   incomes: IncomeItem[];
+  availableExpenseCategories: string[];
+  availableIncomeCategories: string[];
   loading: boolean;
+  lang?: LanguageCode;
   onAddExpense: () => void;
   onEditExpense: (item: ExpenseItem) => void;
   onDeleteExpense: (item: ExpenseItem) => void;
@@ -42,7 +49,10 @@ export function TransactionsView({
   selectedYear,
   expenses,
   incomes,
+  availableExpenseCategories,
+  availableIncomeCategories,
   loading,
+  lang = 'id',
   onAddExpense,
   onEditExpense,
   onDeleteExpense,
@@ -51,14 +61,16 @@ export function TransactionsView({
   onDeleteIncome,
   onFilterChange,
 }: TransactionsViewProps) {
+  const t = UI_TEXT[lang].transactions;
+  const monthNames = MONTH_NAMES_BY_LANG[lang];
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('ALL');
+  const [category, setCategory] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [useMonthScope, setUseMonthScope] = useState(true);
 
   useEffect(() => {
-    setCategory('ALL');
+    setCategory('');
     setSearch('');
   }, [mode]);
 
@@ -75,7 +87,8 @@ export function TransactionsView({
     return () => clearTimeout(timer);
   }, [category, search, startDate, endDate, useMonthScope, onFilterChange]);
 
-  const categories = mode === 'expenses' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES;
+  const categories =
+    mode === 'expenses' ? availableExpenseCategories : availableIncomeCategories;
   const activeCount = mode === 'expenses' ? expenses.length : incomes.length;
   const activeTotal = useMemo(() => {
     if (mode === 'expenses') {
@@ -85,11 +98,11 @@ export function TransactionsView({
   }, [mode, expenses, incomes]);
 
   const hasCustomFilter =
-    category !== 'ALL' || search.trim() !== '' || !useMonthScope || startDate || endDate;
+    category.trim() !== '' || search.trim() !== '' || !useMonthScope || startDate || endDate;
 
   const handleReset = () => {
     setSearch('');
-    setCategory('ALL');
+    setCategory('');
     setStartDate('');
     setEndDate('');
     setUseMonthScope(true);
@@ -97,30 +110,29 @@ export function TransactionsView({
 
   return (
     <div className="space-y-5">
-      {/* Top Segmented Mode + Primary Action */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1 dark:border-slate-800 dark:bg-slate-900">
           <button
             type="button"
             onClick={() => onModeChange('expenses')}
             className={`rounded-md px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               mode === 'expenses'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            Pengeluaran (Expenses)
+            {t.tabExpenses}
           </button>
           <button
             type="button"
             onClick={() => onModeChange('income')}
             className={`rounded-md px-4 py-2 text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
               mode === 'income'
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
+                ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100'
+                : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
-            Pemasukan (Income)
+            {t.tabIncome}
           </button>
         </div>
 
@@ -129,47 +141,58 @@ export function TransactionsView({
           onClick={mode === 'expenses' ? onAddExpense : onAddIncome}
           className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold text-white transition-colors whitespace-nowrap shrink-0 ${
             mode === 'expenses'
-              ? 'bg-slate-900 hover:bg-slate-800'
+              ? 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white'
               : 'bg-emerald-600 hover:bg-emerald-700'
           }`}
         >
           <Plus className="h-4 w-4" />
-          {mode === 'expenses' ? 'Tambah Pengeluaran' : 'Tambah Pemasukan'}
+          {mode === 'expenses' ? t.addExpense : t.addIncome}
         </button>
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
           <div className="relative md:col-span-4">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
                 mode === 'expenses'
-                  ? 'Cari deskripsi, catatan, metode...'
-                  : 'Cari sumber pemasukan atau catatan...'
+                  ? t.searchExpensePlaceholder
+                  : t.searchIncomePlaceholder
               }
-              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none"
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-400"
             />
           </div>
 
-          <div className="md:col-span-3">
-            <select
+          <div className="relative md:col-span-3">
+            <Tag className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <input
+              type="text"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              aria-label="Filter kategori"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-slate-900 focus:outline-none"
-            >
-              <option value="ALL">Semua Kategori</option>
+              list={`category-search-options-${mode}`}
+              placeholder={t.searchCategoryPlaceholder}
+              aria-label={t.searchCategoryAria}
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-400"
+            />
+            {category && (
+              <button
+                type="button"
+                onClick={() => setCategory('')}
+                aria-label={t.clearCategorySearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <datalist id={`category-search-options-${mode}`}>
               {categories.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
+                <option key={cat} value={cat} />
               ))}
-            </select>
+            </datalist>
           </div>
 
           <div className="md:col-span-5 flex flex-wrap items-center gap-2">
@@ -178,13 +201,13 @@ export function TransactionsView({
               onClick={() => setUseMonthScope((prev) => !prev)}
               className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap ${
                 useMonthScope
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               {useMonthScope
-                ? `Periode: ${MONTH_NAMES_ID[selectedMonth - 1]} ${selectedYear}`
-                : 'Rentang Tanggal Kustom'}
+                ? `${t.periodPrefix} ${monthNames[selectedMonth - 1]} ${selectedYear}`
+                : t.customDateRange}
             </button>
 
             {!useMonthScope && (
@@ -193,16 +216,16 @@ export function TransactionsView({
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  aria-label="Tanggal mulai"
-                  className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
+                  aria-label={t.startDateAria}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 focus:border-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 />
                 <span className="text-xs text-slate-400">—</span>
                 <input
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  aria-label="Tanggal akhir"
-                  className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
+                  aria-label={t.endDateAria}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 focus:border-slate-900 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                 />
               </div>
             )}
@@ -211,111 +234,119 @@ export function TransactionsView({
               <button
                 type="button"
                 onClick={handleReset}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap"
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                Reset
+                {t.reset}
               </button>
             )}
           </div>
         </div>
 
-        {/* Summary Strip */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-600 dark:border-slate-800 dark:text-slate-400">
           <span>
-            Menampilkan <strong className="text-slate-900 tabular-nums">{activeCount}</strong>{' '}
-            {mode === 'expenses' ? 'transaksi pengeluaran' : 'catatan pemasukan'}
+            {t.showing}{' '}
+            <strong className="text-slate-900 tabular-nums dark:text-slate-100">
+              {activeCount}
+            </strong>{' '}
+            {mode === 'expenses' ? t.expenseCountSuffix : t.incomeCountSuffix}
           </span>
-          <span className="font-mono font-semibold text-slate-900 tabular-nums">
-            Total: {mode === 'expenses' ? '-' : '+'}
+          <span className="font-mono font-semibold text-slate-900 tabular-nums dark:text-slate-100">
+            {t.total} {mode === 'expenses' ? '-' : '+'}
             {formatCurrency(activeTotal, currency)}
           </span>
         </div>
       </div>
 
-      {/* Data View */}
-      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden dark:border-slate-800 dark:bg-slate-900">
         {loading ? (
           <div className="space-y-3 p-5">
             {[1, 2, 3, 4].map((row) => (
               <div
                 key={row}
-                className="h-11 animate-pulse rounded-lg bg-slate-100"
+                className="h-11 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800"
               />
             ))}
           </div>
         ) : activeCount === 0 ? (
           <div className="px-6 py-14 text-center">
-            <p className="text-sm font-semibold text-slate-800">
-              {mode === 'expenses'
-                ? 'Tidak ada pengeluaran pada filter ini'
-                : 'Tidak ada pemasukan pada filter ini'}
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              {mode === 'expenses' ? t.emptyExpenseFilter : t.emptyIncomeFilter}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {hasCustomFilter
-                ? 'Coba ubah filter pencarian, kategori, atau rentang tanggal.'
+                ? t.emptyFilterHint
                 : mode === 'expenses'
-                ? 'Catat pengeluaran harian Anda agar saldo dan laporan selalu akurat.'
-                : 'Catat pemasukan bulanan Anda (gaji, freelance, bonus, atau lainnya).'}
+                ? t.emptyExpenseHint
+                : t.emptyIncomeHint}
             </p>
             <div className="mt-5 flex justify-center gap-3">
               {hasCustomFilter && (
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                 >
-                  Reset Filter
+                  {t.resetFilter}
                 </button>
               )}
               <button
                 type="button"
                 onClick={mode === 'expenses' ? onAddExpense : onAddIncome}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
               >
                 <Plus className="h-3.5 w-3.5" />
-                {mode === 'expenses' ? 'Catat Pengeluaran' : 'Catat Pemasukan'}
+                {mode === 'expenses' ? t.recordExpense : t.recordIncome}
               </button>
             </div>
           </div>
         ) : mode === 'expenses' ? (
           <>
-            {/* Desktop Table */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-600">
-                    <th className="px-5 py-3">Tanggal</th>
-                    <th className="px-4 py-3">Deskripsi</th>
-                    <th className="px-4 py-3">Kategori</th>
-                    <th className="px-4 py-3">Metode</th>
-                    <th className="px-4 py-3 text-right">Nominal</th>
-                    <th className="px-5 py-3 text-right">Aksi</th>
+                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300">
+                    <th className="px-5 py-3">{t.colDate}</th>
+                    <th className="px-4 py-3">{t.colDesc}</th>
+                    <th className="px-4 py-3">{t.colCategory}</th>
+                    <th className="px-4 py-3">{t.colMethod}</th>
+                    <th className="px-4 py-3 text-right">{t.colAmount}</th>
+                    <th className="px-5 py-3 text-right">{t.colAction}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
+                <tbody className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
                   {expenses.map((item) => (
                     <tr
                       key={item.id}
-                      className="transition-colors hover:bg-slate-50/70"
+                      className="transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
                     >
-                      <td className="px-5 py-3 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                        {formatDateShort(item.date)}
+                      <td className="px-5 py-3 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap dark:text-slate-300">
+                        {formatDateShort(item.date, lang)}
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-medium text-slate-900">{item.description}</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">
+                          {item.description}
+                        </p>
                         {item.notes && (
-                          <p className="mt-0.5 text-xs text-slate-500">{item.notes}</p>
+                          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            {item.notes}
+                          </p>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">
-                        {item.category}
-                        {item.subType ? ` · ${item.subType}` : ''}
+                      <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap dark:text-slate-300">
+                        {translateCategoryLabel(item.category, lang)}
+                        {item.subType
+                          ? ` · ${
+                              item.subType === 'Investasi'
+                                ? UI_TEXT[lang].modals.investment
+                                : UI_TEXT[lang].modals.savings
+                            }`
+                          : ''}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
-                        {item.paymentMethod}
+                      <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap dark:text-slate-400">
+                        {translatePaymentMethodLabel(item.paymentMethod, lang)}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-rose-600 tabular-nums whitespace-nowrap">
+                      <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-rose-600 tabular-nums whitespace-nowrap dark:text-rose-400">
                         -{formatCurrency(item.amount, currency)}
                       </td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
@@ -323,16 +354,16 @@ export function TransactionsView({
                           <button
                             type="button"
                             onClick={() => onEditExpense(item)}
-                            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                            aria-label={`Edit ${item.description}`}
+                            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            aria-label={`${t.edit} ${item.description}`}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => onDeleteExpense(item)}
-                            className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                            aria-label={`Hapus ${item.description}`}
+                            className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-950/50 dark:hover:text-rose-400"
+                            aria-label={`${t.delete} ${item.description}`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -344,22 +375,33 @@ export function TransactionsView({
               </table>
             </div>
 
-            {/* Mobile Card List */}
-            <div className="divide-y divide-slate-100 md:hidden">
+            <div className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
               {expenses.map((item) => (
                 <div key={item.id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900">{item.description}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatDateShort(item.date)} · {item.category}
-                        {item.subType ? ` (${item.subType})` : ''} · {item.paymentMethod}
+                      <p className="font-medium text-slate-900 dark:text-slate-100">
+                        {item.description}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {formatDateShort(item.date, lang)} ·{' '}
+                        {translateCategoryLabel(item.category, lang)}
+                        {item.subType
+                          ? ` (${
+                              item.subType === 'Investasi'
+                                ? UI_TEXT[lang].modals.investment
+                                : UI_TEXT[lang].modals.savings
+                            })`
+                          : ''}{' '}
+                        · {translatePaymentMethodLabel(item.paymentMethod, lang)}
                       </p>
                       {item.notes && (
-                        <p className="mt-1 text-xs text-slate-500">{item.notes}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          {item.notes}
+                        </p>
                       )}
                     </div>
-                    <p className="shrink-0 font-mono text-sm font-semibold text-rose-600 tabular-nums">
+                    <p className="shrink-0 font-mono text-sm font-semibold text-rose-600 tabular-nums dark:text-rose-400">
                       -{formatCurrency(item.amount, currency)}
                     </p>
                   </div>
@@ -367,18 +409,18 @@ export function TransactionsView({
                     <button
                       type="button"
                       onClick={() => onEditExpense(item)}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-700 dark:text-slate-300"
                     >
                       <Pencil className="h-3.5 w-3.5" />
-                      Edit
+                      {t.edit}
                     </button>
                     <button
                       type="button"
                       onClick={() => onDeleteExpense(item)}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 dark:border-rose-900/70 dark:text-rose-400"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      Hapus
+                      {t.delete}
                     </button>
                   </div>
                 </div>
@@ -387,37 +429,40 @@ export function TransactionsView({
           </>
         ) : (
           <>
-            {/* Desktop Table (Income) */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-600">
-                    <th className="px-5 py-3">Tanggal</th>
-                    <th className="px-4 py-3">Sumber Pemasukan</th>
-                    <th className="px-4 py-3">Kategori</th>
-                    <th className="px-4 py-3 text-right">Nominal</th>
-                    <th className="px-5 py-3 text-right">Aksi</th>
+                  <tr className="border-b border-slate-200 bg-slate-50/70 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300">
+                    <th className="px-5 py-3">{t.colDate}</th>
+                    <th className="px-4 py-3">{t.colSource}</th>
+                    <th className="px-4 py-3">{t.colCategory}</th>
+                    <th className="px-4 py-3 text-right">{t.colAmount}</th>
+                    <th className="px-5 py-3 text-right">{t.colAction}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-sm">
+                <tbody className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
                   {incomes.map((item) => (
                     <tr
                       key={item.id}
-                      className="transition-colors hover:bg-slate-50/70"
+                      className="transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
                     >
-                      <td className="px-5 py-3 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap">
-                        {formatDateShort(item.date)}
+                      <td className="px-5 py-3 font-mono text-xs text-slate-600 tabular-nums whitespace-nowrap dark:text-slate-300">
+                        {formatDateShort(item.date, lang)}
                       </td>
                       <td className="px-4 py-3">
-                        <p className="font-medium text-slate-900">{item.source}</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">
+                          {item.source}
+                        </p>
                         {item.notes && (
-                          <p className="mt-0.5 text-xs text-slate-500">{item.notes}</p>
+                          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            {item.notes}
+                          </p>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap">
-                        {item.category}
+                      <td className="px-4 py-3 text-xs text-slate-700 whitespace-nowrap dark:text-slate-300">
+                        {translateCategoryLabel(item.category, lang)}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-emerald-600 tabular-nums whitespace-nowrap">
+                      <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-emerald-600 tabular-nums whitespace-nowrap dark:text-emerald-400">
                         +{formatCurrency(item.amount, currency)}
                       </td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
@@ -425,16 +470,16 @@ export function TransactionsView({
                           <button
                             type="button"
                             onClick={() => onEditIncome(item)}
-                            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                            aria-label={`Edit ${item.source}`}
+                            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            aria-label={`${t.edit} ${item.source}`}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             type="button"
                             onClick={() => onDeleteIncome(item)}
-                            className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
-                            aria-label={`Hapus ${item.source}`}
+                            className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:text-slate-400 dark:hover:bg-rose-950/50 dark:hover:text-rose-400"
+                            aria-label={`${t.delete} ${item.source}`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -446,21 +491,25 @@ export function TransactionsView({
               </table>
             </div>
 
-            {/* Mobile Card List (Income) */}
-            <div className="divide-y divide-slate-100 md:hidden">
+            <div className="divide-y divide-slate-100 md:hidden dark:divide-slate-800">
               {incomes.map((item) => (
                 <div key={item.id} className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900">{item.source}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {formatDateShort(item.date)} · {item.category}
+                      <p className="font-medium text-slate-900 dark:text-slate-100">
+                        {item.source}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {formatDateShort(item.date, lang)} ·{' '}
+                        {translateCategoryLabel(item.category, lang)}
                       </p>
                       {item.notes && (
-                        <p className="mt-1 text-xs text-slate-500">{item.notes}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          {item.notes}
+                        </p>
                       )}
                     </div>
-                    <p className="shrink-0 font-mono text-sm font-semibold text-emerald-600 tabular-nums">
+                    <p className="shrink-0 font-mono text-sm font-semibold text-emerald-600 tabular-nums dark:text-emerald-400">
                       +{formatCurrency(item.amount, currency)}
                     </p>
                   </div>
@@ -468,18 +517,18 @@ export function TransactionsView({
                     <button
                       type="button"
                       onClick={() => onEditIncome(item)}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-700 dark:text-slate-300"
                     >
                       <Pencil className="h-3.5 w-3.5" />
-                      Edit
+                      {t.edit}
                     </button>
                     <button
                       type="button"
                       onClick={() => onDeleteIncome(item)}
-                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600"
+                      className="inline-flex min-h-[36px] items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 dark:border-rose-900/70 dark:text-rose-400"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                      Hapus
+                      {t.delete}
                     </button>
                   </div>
                 </div>

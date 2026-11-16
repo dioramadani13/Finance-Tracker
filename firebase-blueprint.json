@@ -71,23 +71,8 @@
         },
         "category": {
           "type": "string",
-          "enum": [
-            "Makanan dan minuman",
-            "Transportasi",
-            "Kebutuhan sehari-hari",
-            "Pendidikan",
-            "Hiburan",
-            "Kesehatan",
-            "Tagihan",
-            "Orang tua",
-            "Tabungan dan investasi",
-            "Lainnya",
-            "Gaji",
-            "Freelance",
-            "Bisnis",
-            "Bonus",
-            "Pendapatan lainnya"
-          ],
+          "description": "Manual transaction category",
+          "minLength": 1,
           "maxLength": 40
         },
         "note": {

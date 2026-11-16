@@ -1,24 +1,22 @@
 export const EXPENSE_CATEGORIES = [
-  'Makanan dan minuman',
+  'Makan dan Minum',
   'Transportasi',
-  'Kebutuhan sehari-hari',
-  'Pendidikan',
-  'Hiburan',
-  'Kesehatan',
-  'Tagihan',
-  'Orang tua',
-  'Tabungan dan investasi',
-  'Lainnya',
+  'Bensin',
+  'Investasi / tabungan',
+  'Jajan dan Nongkrong',
+  'Kebutuhan Sehari-hari',
 ] as const;
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 
 export const INCOME_CATEGORIES = [
-  'Gaji',
-  'Freelance',
-  'Bisnis',
-  'Bonus',
-  'Pendapatan lainnya',
+  'Uang Bulanan',
+  'Investasi / tabungan',
+  'Makan dan Minum',
+  'Transportasi',
+  'Bensin',
+  'Jajan dan Nongkrong',
+  'Kebutuhan Sehari-hari',
 ] as const;
 
 export type IncomeCategory = (typeof INCOME_CATEGORIES)[number];
@@ -191,11 +189,11 @@ export function formatCurrency(amount: number, currency = 'IDR'): string {
   }).format(amount);
 }
 
-export function formatDateShort(dateStr: string): string {
+export function formatDateShort(dateStr: string, lang: 'id' | 'en' = 'id'): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
-  return new Intl.DateTimeFormat('id-ID', {
+  return new Intl.DateTimeFormat(lang === 'en' ? 'en-US' : 'id-ID', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',

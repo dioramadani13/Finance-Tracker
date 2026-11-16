@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
@@ -15,6 +17,12 @@
     background-color: #f8fafc;
     color: #0f172a;
     overflow-x: hidden;
+  }
+
+  html.dark body {
+    background-color: #020617;
+    color: #f1f5f9;
+    color-scheme: dark;
   }
 
   .tabular-nums {
@@ -95,5 +103,6 @@
   }
   body {
     background-color: #ffffff !important;
+    color: #0f172a !important;
   }
 }

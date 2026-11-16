@@ -21,8 +21,19 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('pft_theme');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (saved === 'dark' || (!saved && prefersDark)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-emerald-100 selection:text-slate-900">
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-emerald-100 selection:text-slate-900 dark:bg-slate-950 dark:text-slate-100 dark:selection:bg-emerald-900/60 dark:selection:text-emerald-100">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

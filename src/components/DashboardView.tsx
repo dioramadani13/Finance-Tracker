@@ -15,16 +15,24 @@ import {
 } from 'recharts';
 import {
   FinancialSummaryResponse,
-  MONTH_NAMES_ID,
   UserProfile,
   formatCurrency,
   formatDateShort,
 } from '../shared/finance.ts';
+import {
+  LanguageCode,
+  MONTH_NAMES_BY_LANG,
+  UI_TEXT,
+  translateCategoryLabel,
+  translatePaymentMethodLabel,
+} from '../lib/i18n.ts';
 
 interface DashboardViewProps {
   summary: FinancialSummaryResponse | null;
   user: UserProfile;
   loading: boolean;
+  isDark: boolean;
+  lang?: LanguageCode;
   onAddExpense: () => void;
   onAddIncome: () => void;
   onNavigate: (tab: 'expenses' | 'income' | 'reports') => void;
@@ -34,6 +42,8 @@ export function DashboardView({
   summary,
   user,
   loading,
+  isDark,
+  lang = 'id',
   onAddExpense,
   onAddIncome,
   onNavigate,
@@ -45,13 +55,13 @@ export function DashboardView({
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="h-28 animate-pulse rounded-xl border border-slate-200 bg-white p-5"
+              className="h-28 animate-pulse rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
             />
           ))}
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          <div className="h-80 animate-pulse rounded-xl border border-slate-200 bg-white lg:col-span-8" />
-          <div className="h-80 animate-pulse rounded-xl border border-slate-200 bg-white lg:col-span-4" />
+          <div className="h-80 animate-pulse rounded-xl border border-slate-200 bg-white lg:col-span-8 dark:border-slate-800 dark:bg-slate-900" />
+          <div className="h-80 animate-pulse rounded-xl border border-slate-200 bg-white lg:col-span-4 dark:border-slate-800 dark:bg-slate-900" />
         </div>
       </div>
     );
@@ -59,8 +69,11 @@ export function DashboardView({
 
   if (!summary) return null;
 
+  const t = UI_TEXT[lang].dashboard;
+  const tReport = UI_TEXT[lang].reports;
+  const monthNames = MONTH_NAMES_BY_LANG[lang];
   const currency = user.currency || 'IDR';
-  const periodLabel = `${MONTH_NAMES_ID[summary.period.month - 1]} ${summary.period.year}`;
+  const periodLabel = `${monthNames[summary.period.month - 1]} ${summary.period.year}`;
   const budgetUsedPct =
     user.monthlyBudget > 0
       ? Math.min(100, (summary.monthlyExpense / user.monthlyBudget) * 100)
@@ -70,110 +83,118 @@ export function DashboardView({
 
   return (
     <div className="space-y-6">
-      {/* 4-column KPI strip */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-medium text-slate-500">Total Saldo Saat Ini</p>
-          <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {t.totalBalance}
+          </p>
+          <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-slate-900 tabular-nums dark:text-slate-100">
             {formatCurrency(summary.currentTotalBalance, currency)}
           </p>
-          <p className="mt-2 text-xs text-slate-500 tabular-nums">
-            Saldo awal: {formatCurrency(summary.initialBalance, currency)}
+          <p className="mt-2 text-xs text-slate-500 tabular-nums dark:text-slate-400">
+            {t.initialBalance} {formatCurrency(summary.initialBalance, currency)}
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-500">
-              Pemasukan ({periodLabel})
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {t.incomeLabel} ({periodLabel})
             </p>
-            <ArrowDownLeft className="h-4 w-4 text-emerald-600" />
+            <ArrowDownLeft className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-emerald-600 tabular-nums">
+          <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-emerald-600 tabular-nums dark:text-emerald-400">
             +{formatCurrency(summary.monthlyIncome, currency)}
           </p>
-          <p className="mt-2 text-xs text-slate-500 tabular-nums">
-            Bulan lalu: {formatCurrency(summary.previousMonth.income, currency)}
+          <p className="mt-2 text-xs text-slate-500 tabular-nums dark:text-slate-400">
+            {t.lastMonth} {formatCurrency(summary.previousMonth.income, currency)}
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-500">
-              Pengeluaran ({periodLabel})
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {t.expenseLabel} ({periodLabel})
             </p>
-            <ArrowUpRight className="h-4 w-4 text-rose-600" />
+            <ArrowUpRight className="h-4 w-4 text-rose-600 dark:text-rose-400" />
           </div>
-          <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-rose-600 tabular-nums">
+          <p className="mt-2 font-mono text-2xl font-semibold tracking-tight text-rose-600 tabular-nums dark:text-rose-400">
             -{formatCurrency(summary.monthlyExpense, currency)}
           </p>
           {user.monthlyBudget > 0 ? (
             <div className="mt-2">
               <div className="flex items-center justify-between text-xs">
-                <span className={isOverBudget ? 'font-medium text-rose-600' : 'text-slate-500'}>
-                  {budgetUsedPct.toFixed(0)}% dari anggaran
+                <span
+                  className={
+                    isOverBudget
+                      ? 'font-medium text-rose-600 dark:text-rose-400'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }
+                >
+                  {budgetUsedPct.toFixed(0)}
+                  {t.budgetPct}
                 </span>
-                <span className="font-mono text-slate-500 tabular-nums">
+                <span className="font-mono text-slate-500 tabular-nums dark:text-slate-400">
                   {formatCurrency(user.monthlyBudget, currency)}
                 </span>
               </div>
-              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                 <div
                   className={`h-full rounded-full ${
-                    isOverBudget ? 'bg-rose-600' : 'bg-slate-800'
+                    isOverBudget
+                      ? 'bg-rose-600 dark:bg-rose-500'
+                      : 'bg-slate-800 dark:bg-slate-200'
                   }`}
                   style={{ width: `${budgetUsedPct}%` }}
                 />
               </div>
             </div>
           ) : (
-            <p className="mt-2 text-xs text-slate-500 tabular-nums">
-              Bulan lalu: {formatCurrency(summary.previousMonth.expense, currency)}
+            <p className="mt-2 text-xs text-slate-500 tabular-nums dark:text-slate-400">
+              {t.lastMonth} {formatCurrency(summary.previousMonth.expense, currency)}
             </p>
           )}
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-medium text-slate-500">
-            Sisa Uang / Cash Flow ({periodLabel})
+        <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            {t.cashFlowLabel} ({periodLabel})
           </p>
           <p
             className={`mt-2 font-mono text-2xl font-semibold tracking-tight tabular-nums ${
-              summary.monthlyNetCashFlow >= 0 ? 'text-emerald-700' : 'text-rose-600'
+              summary.monthlyNetCashFlow >= 0
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-rose-600 dark:text-rose-400'
             }`}
           >
             {summary.monthlyNetCashFlow >= 0 ? '+' : ''}
             {formatCurrency(summary.monthlyNetCashFlow, currency)}
           </p>
-          <p className="mt-2 text-xs text-slate-500">
-            {summary.monthlyNetCashFlow >= 0
-              ? 'Surplus · Pemasukan melebihi pengeluaran'
-              : 'Defisit · Pengeluaran melebihi pemasukan'}
+          <p className="mt-2 text-xs text-slate-500 tabular-nums dark:text-slate-400">
+            {t.lastMonth} {formatCurrency(summary.previousMonth.netCashFlow, currency)}
           </p>
         </div>
       </div>
 
-      {/* Main Analytics Split */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        {/* Income vs Expense Comparison Chart */}
-        <section className="rounded-xl border border-slate-200 bg-white p-5 lg:col-span-8">
+        <section className="rounded-xl border border-slate-200 bg-white p-5 lg:col-span-8 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">
-                Perbandingan Pemasukan &amp; Pengeluaran
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                {t.chartTitle}
               </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Tren arus kas 6 bulan terakhir hingga {periodLabel}
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {t.chartSubtitle} {periodLabel}
               </p>
             </div>
-            <div className="flex items-center gap-4 text-xs text-slate-600">
+            <div className="flex items-center gap-4 text-xs text-slate-600 dark:text-slate-300">
               <span className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-sm bg-emerald-600" />
-                Pemasukan
+                {t.incomeLabel}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" />
-                Pengeluaran
+                {t.expenseLabel}
               </span>
             </div>
           </div>
@@ -184,37 +205,43 @@ export function DashboardView({
                 data={summary.monthlySeries}
                 margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke={isDark ? '#1e293b' : '#e2e8f0'}
+                />
                 <XAxis
                   dataKey="label"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: '#64748b', fontSize: 12 }}
+                  tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
                   width={72}
-                  tick={{ fill: '#64748b', fontSize: 11 }}
+                  tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 11 }}
                   tickFormatter={(val: number) =>
                     val >= 1_000_000
-                      ? `${(val / 1_000_000).toFixed(1)}jt`
+                      ? `${(val / 1_000_000).toFixed(1)}${lang === 'en' ? 'M' : 'jt'}`
                       : val >= 1_000
-                      ? `${(val / 1_000).toFixed(0)}rb`
+                      ? `${(val / 1_000).toFixed(0)}${lang === 'en' ? 'k' : 'rb'}`
                       : String(val)
                   }
                 />
                 <Tooltip
-                  cursor={{ fill: '#f8fafc' }}
+                  cursor={{ fill: isDark ? '#1e293b' : '#f8fafc' }}
                   contentStyle={{
                     borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
+                    border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                    backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                    color: isDark ? '#f1f5f9' : '#0f172a',
                     fontSize: '12px',
-                    boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
+                    boxShadow: '0 4px 12px rgba(15, 23, 42, 0.16)',
                   }}
                   formatter={(value: unknown, name: unknown) => [
                     formatCurrency(Number(value) || 0, currency),
-                    name === 'income' ? 'Pemasukan' : 'Pengeluaran',
+                    name === 'income' ? t.incomeLabel : t.expenseLabel,
                   ]}
                 />
                 <Bar
@@ -236,39 +263,40 @@ export function DashboardView({
           </div>
         </section>
 
-        {/* Category Breakdown */}
-        <section className="rounded-xl border border-slate-200 bg-white p-5 lg:col-span-4">
+        <section className="rounded-xl border border-slate-200 bg-white p-5 lg:col-span-4 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">
-                Pengeluaran per Kategori
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                {t.categoryTitle}
               </h2>
-              <p className="mt-0.5 text-xs text-slate-500">{periodLabel}</p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {periodLabel}
+              </p>
             </div>
             <button
               type="button"
               onClick={() => onNavigate('reports')}
-              className="text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap"
+              className="text-xs font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap dark:text-slate-400 dark:hover:text-slate-100"
             >
-              Detail
+              {t.detail}
             </button>
           </div>
 
           {summary.expenseByCategory.length === 0 ? (
             <div className="mt-8 flex flex-col items-center justify-center py-8 text-center">
-              <p className="text-sm font-medium text-slate-700">
-                Belum ada pengeluaran bulan ini
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                {t.noExpenseMonth}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Catat pengeluaran harian untuk melihat distribusi kategori.
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {t.noExpenseMonthDesc}
               </p>
               <button
                 type="button"
                 onClick={onAddExpense}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Catat Pengeluaran
+                {t.recordExpense}
               </button>
             </div>
           ) : (
@@ -276,21 +304,21 @@ export function DashboardView({
               {summary.expenseByCategory.slice(0, 6).map((item) => (
                 <div key={item.category}>
                   <div className="flex items-baseline justify-between gap-2 text-xs">
-                    <span className="truncate font-medium text-slate-800">
-                      {item.category}
+                    <span className="truncate font-medium text-slate-800 dark:text-slate-200">
+                      {translateCategoryLabel(item.category, lang)}
                     </span>
-                    <span className="shrink-0 font-mono text-slate-700 tabular-nums">
+                    <span className="shrink-0 font-mono text-slate-700 tabular-nums dark:text-slate-300">
                       {formatCurrency(item.amount, currency)}
                     </span>
                   </div>
                   <div className="mt-1.5 flex items-center gap-2.5">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
-                        className="h-full rounded-full bg-slate-800"
+                        className="h-full rounded-full bg-slate-800 dark:bg-slate-200"
                         style={{ width: `${Math.max(4, item.percentage)}%` }}
                       />
                     </div>
-                    <span className="w-10 text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                    <span className="w-10 text-right font-mono text-[11px] text-slate-500 tabular-nums dark:text-slate-400">
                       {item.percentage.toFixed(0)}%
                     </span>
                   </div>
@@ -301,32 +329,31 @@ export function DashboardView({
         </section>
       </div>
 
-      {/* Recent Transactions */}
-      <section className="rounded-xl border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">
-              Riwayat Transaksi Terbaru
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+              {t.recentTitle}
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Gabungan catatan pemasukan dan pengeluaran terkini
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {t.recentSubtitle}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => onNavigate('expenses')}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              Semua Pengeluaran
+              {t.allExpenses}
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
               onClick={() => onNavigate('income')}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 whitespace-nowrap dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              Semua Pemasukan
+              {t.allIncomes}
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -334,11 +361,11 @@ export function DashboardView({
 
         {summary.recentTransactions.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <p className="text-sm font-medium text-slate-800">
-              Belum ada transaksi yang tercatat
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
+              {t.noTxYet}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Mulai dengan mencatat pemasukan bulanan atau pengeluaran harian pertama Anda.
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {t.noTxDesc}
             </p>
             <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
               <button
@@ -347,37 +374,37 @@ export function DashboardView({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 whitespace-nowrap"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Catat Pemasukan Pertama
+                {t.firstIncome}
               </button>
               <button
                 type="button"
                 onClick={onAddExpense}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Catat Pengeluaran Pertama
+                {t.firstExpense}
               </button>
             </div>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {summary.recentTransactions.map((tx) => (
               <div
                 key={`${tx.kind}-${tx.id}`}
-                className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-slate-50/70"
+                className="flex items-center justify-between gap-4 px-5 py-3.5 transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/50"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-900">
+                  <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                     {tx.title}
                   </p>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                    <span className="tabular-nums">{formatDateShort(tx.date)}</span>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                    <span className="tabular-nums">{formatDateShort(tx.date, lang)}</span>
                     <span aria-hidden="true">·</span>
-                    <span>{tx.category}</span>
+                    <span>{translateCategoryLabel(tx.category, lang)}</span>
                     {tx.paymentMethod && (
                       <>
                         <span aria-hidden="true">·</span>
-                        <span>{tx.paymentMethod}</span>
+                        <span>{translatePaymentMethodLabel(tx.paymentMethod, lang)}</span>
                       </>
                     )}
                   </div>
@@ -385,14 +412,16 @@ export function DashboardView({
                 <div className="shrink-0 text-right">
                   <p
                     className={`font-mono text-sm font-semibold tabular-nums ${
-                      tx.kind === 'income' ? 'text-emerald-600' : 'text-rose-600'
+                      tx.kind === 'income'
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-rose-600 dark:text-rose-400'
                     }`}
                   >
                     {tx.kind === 'income' ? '+' : '-'}
                     {formatCurrency(tx.amount, currency)}
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    {tx.kind === 'income' ? 'Pemasukan' : 'Pengeluaran'}
+                  <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                    {tx.kind === 'income' ? tReport.typeIncome : tReport.typeExpense}
                   </p>
                 </div>
               </div>

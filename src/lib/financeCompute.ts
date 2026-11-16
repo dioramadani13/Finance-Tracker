@@ -2,10 +2,10 @@ import {
   ExpenseItem,
   FinancialSummaryResponse,
   IncomeItem,
-  MONTH_NAMES_ID,
   MonthlySummaryRow,
   UserProfile,
 } from '../shared/finance.ts';
+import { LanguageCode, MONTH_NAMES_BY_LANG } from './i18n.ts';
 
 export interface TransactionFilterParams {
   month?: number;
@@ -29,8 +29,11 @@ export function filterExpensesList(
         if (filters.startDate && item.date < filters.startDate) return false;
         if (filters.endDate && item.date > filters.endDate) return false;
       }
-      if (filters.category && filters.category !== 'ALL' && item.category !== filters.category) {
-        return false;
+      if (filters.category && filters.category !== 'ALL' && filters.category.trim()) {
+        const catQuery = filters.category.trim().toLowerCase();
+        if (!item.category.toLowerCase().includes(catQuery)) {
+          return false;
+        }
       }
       if (filters.search && filters.search.trim()) {
         const q = filters.search.trim().toLowerCase();
@@ -55,8 +58,11 @@ export function filterIncomesList(
         if (filters.startDate && item.date < filters.startDate) return false;
         if (filters.endDate && item.date > filters.endDate) return false;
       }
-      if (filters.category && filters.category !== 'ALL' && item.category !== filters.category) {
-        return false;
+      if (filters.category && filters.category !== 'ALL' && filters.category.trim()) {
+        const catQuery = filters.category.trim().toLowerCase();
+        if (!item.category.toLowerCase().includes(catQuery)) {
+          return false;
+        }
       }
       if (filters.search && filters.search.trim()) {
         const q = filters.search.trim().toLowerCase();
@@ -73,8 +79,10 @@ export function computeFinancialSummary(
   expenses: ExpenseItem[],
   incomes: IncomeItem[],
   month: number,
-  year: number
+  year: number,
+  lang: LanguageCode = 'id'
 ): FinancialSummaryResponse {
+  const monthNames = MONTH_NAMES_BY_LANG[lang];
   const initialBalance = profile.initialBalance || 0;
   const selectedKey = `${year}-${String(month).padStart(2, '0')}`;
   const prevDate = new Date(Date.UTC(year, month - 2, 1));
@@ -132,11 +140,11 @@ export function computeFinancialSummary(
     allTimeExpense += exp.amount;
     if (ym <= selectedKey) cumulativeExpenseUpToSelected += exp.amount;
 
-    const isSavingOrInvest = exp.category === 'Tabungan dan investasi';
+    const isSavingOrInvest = /tabungan|investasi/i.test(exp.category);
     const isInvestment =
       isSavingOrInvest &&
       (exp.subType === 'Investasi' ||
-        /invest|saham|reksadana|obligasi|crypto|emas/i.test(exp.description));
+        /invest|saham|reksadana|obligasi|crypto|emas/i.test(`${exp.category} ${exp.description}`));
 
     if (ym === selectedKey) {
       monthlyExpense += exp.amount;
@@ -185,7 +193,7 @@ export function computeFinancialSummary(
       key,
       month: m,
       year: y,
-      label: `${MONTH_NAMES_ID[m - 1].slice(0, 3)} ${String(y).slice(2)}`,
+      label: `${monthNames[m - 1].slice(0, 3)} ${String(y).slice(2)}`,
       income: inc,
       expense: exp,
       netCashFlow: inc - exp,
@@ -201,7 +209,7 @@ export function computeFinancialSummary(
     runningBalance += b.income - b.expense;
     return {
       month: b.month,
-      monthName: MONTH_NAMES_ID[b.month - 1],
+      monthName: monthNames[b.month - 1],
       year: b.year,
       totalIncome: b.income,
       totalExpense: b.expense,

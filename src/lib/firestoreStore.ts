@@ -14,9 +14,7 @@ import {
 } from 'firebase/firestore';
 import {
   CURRENCIES,
-  EXPENSE_CATEGORIES,
   ExpenseItem,
-  INCOME_CATEGORIES,
   IncomeItem,
   PAYMENT_METHODS,
   UserProfile,
@@ -240,7 +238,7 @@ function mapTransactionToExpense(
     userId: hashToNumber(uid),
     date: typeof data.date === 'string' ? data.date : '',
     description: title,
-    category: typeof data.category === 'string' ? data.category : EXPENSE_CATEGORIES[0],
+    category: typeof data.category === 'string' ? data.category : 'Lainnya',
     subType: typeof data.subType === 'string' ? data.subType : '',
     paymentMethod:
       typeof data.paymentMethod === 'string' ? data.paymentMethod : PAYMENT_METHODS[0],
@@ -271,7 +269,7 @@ function mapTransactionToIncome(
     userId: hashToNumber(uid),
     date: typeof data.date === 'string' ? data.date : '',
     source: title,
-    category: typeof data.category === 'string' ? data.category : INCOME_CATEGORIES[0],
+    category: typeof data.category === 'string' ? data.category : 'Pendapatan lainnya',
     amount: typeof data.amount === 'number' ? data.amount : Number(data.amount) || 0,
     notes: note,
     createdAt: formatTimestamp(data.createdAt),
@@ -447,14 +445,15 @@ export const firestoreStore = {
     if (!title) {
       throw new Error('Deskripsi pengeluaran wajib diisi.');
     }
-    if (!EXPENSE_CATEGORIES.includes(payload.category as (typeof EXPENSE_CATEGORIES)[number])) {
-      throw new Error('Kategori pengeluaran tidak valid.');
+    const category = sanitizeText(payload.category, 40);
+    if (!category) {
+      throw new Error('Kategori pengeluaran wajib diisi.');
     }
     if (!PAYMENT_METHODS.includes(payload.paymentMethod as (typeof PAYMENT_METHODS)[number])) {
       throw new Error('Metode pembayaran tidak valid.');
     }
     const subType =
-      payload.category === 'Tabungan dan investasi'
+      /tabungan|investasi/i.test(category)
         ? payload.subType === 'Investasi'
           ? 'Investasi'
           : 'Tabungan'
@@ -468,7 +467,7 @@ export const firestoreStore = {
       await setDoc(doc(db, 'users', validUid, 'transactions', externalId), {
         type: 'expense',
         amount,
-        category: payload.category,
+        category,
         note,
         date: payload.date,
         title,
@@ -506,14 +505,15 @@ export const firestoreStore = {
     if (!title) {
       throw new Error('Deskripsi pengeluaran wajib diisi.');
     }
-    if (!EXPENSE_CATEGORIES.includes(payload.category as (typeof EXPENSE_CATEGORIES)[number])) {
-      throw new Error('Kategori pengeluaran tidak valid.');
+    const category = sanitizeText(payload.category, 40);
+    if (!category) {
+      throw new Error('Kategori pengeluaran wajib diisi.');
     }
     if (!PAYMENT_METHODS.includes(payload.paymentMethod as (typeof PAYMENT_METHODS)[number])) {
       throw new Error('Metode pembayaran tidak valid.');
     }
     const subType =
-      payload.category === 'Tabungan dan investasi'
+      /tabungan|investasi/i.test(category)
         ? payload.subType === 'Investasi'
           ? 'Investasi'
           : 'Tabungan'
@@ -526,7 +526,7 @@ export const firestoreStore = {
       await updateDoc(doc(db, 'users', validUid, 'transactions', validDocId), {
         date: payload.date,
         title,
-        category: payload.category,
+        category,
         subType,
         paymentMethod: payload.paymentMethod,
         amount,
@@ -568,8 +568,9 @@ export const firestoreStore = {
     if (!title) {
       throw new Error('Sumber pemasukan wajib diisi.');
     }
-    if (!INCOME_CATEGORIES.includes(payload.category as (typeof INCOME_CATEGORIES)[number])) {
-      throw new Error('Kategori pemasukan tidak valid.');
+    const category = sanitizeText(payload.category, 40);
+    if (!category) {
+      throw new Error('Kategori pemasukan wajib diisi.');
     }
     const amount = sanitizePositive(payload.amount, 'Nominal pemasukan');
     const note = sanitizeText(payload.notes ?? '', 300);
@@ -580,7 +581,7 @@ export const firestoreStore = {
       await setDoc(doc(db, 'users', validUid, 'transactions', externalId), {
         type: 'income',
         amount,
-        category: payload.category,
+        category,
         note,
         date: payload.date,
         title,
@@ -616,8 +617,9 @@ export const firestoreStore = {
     if (!title) {
       throw new Error('Sumber pemasukan wajib diisi.');
     }
-    if (!INCOME_CATEGORIES.includes(payload.category as (typeof INCOME_CATEGORIES)[number])) {
-      throw new Error('Kategori pemasukan tidak valid.');
+    const category = sanitizeText(payload.category, 40);
+    if (!category) {
+      throw new Error('Kategori pemasukan wajib diisi.');
     }
     const amount = sanitizePositive(payload.amount, 'Nominal pemasukan');
     const note = sanitizeText(payload.notes ?? '', 300);
@@ -627,7 +629,7 @@ export const firestoreStore = {
       await updateDoc(doc(db, 'users', validUid, 'transactions', validDocId), {
         date: payload.date,
         title,
-        category: payload.category,
+        category,
         amount,
         note,
         updatedAt: serverTimestamp(),

@@ -2,10 +2,10 @@ import {
   ExpenseItem,
   FinancialSummaryResponse,
   IncomeItem,
-  MONTH_NAMES_ID,
   MonthlySummaryRow,
   UserProfile,
 } from '../shared/finance.ts';
+import { LanguageCode, MONTH_NAMES_BY_LANG } from './i18n.ts';
 
 const STORAGE_KEY = 'pft_local_workspace_v1';
 
@@ -100,8 +100,11 @@ export const localStore = {
           if (filters.startDate && item.date < filters.startDate) return false;
           if (filters.endDate && item.date > filters.endDate) return false;
         }
-        if (filters.category && filters.category !== 'ALL' && item.category !== filters.category) {
-          return false;
+        if (filters.category && filters.category !== 'ALL' && filters.category.trim()) {
+          const catQuery = filters.category.trim().toLowerCase();
+          if (!item.category.toLowerCase().includes(catQuery)) {
+            return false;
+          }
         }
         if (filters.search && filters.search.trim()) {
           const q = filters.search.trim().toLowerCase();
@@ -132,8 +135,9 @@ export const localStore = {
       date: payload.date,
       description: payload.description.trim(),
       category: payload.category,
-      subType:
-        payload.category === 'Tabungan dan investasi' ? payload.subType || 'Tabungan' : '',
+      subType: /tabungan|investasi/i.test(payload.category)
+        ? payload.subType || 'Tabungan'
+        : '',
       paymentMethod: payload.paymentMethod,
       amount: payload.amount,
       notes: (payload.notes ?? '').trim(),
@@ -165,8 +169,9 @@ export const localStore = {
       date: payload.date,
       description: payload.description.trim(),
       category: payload.category,
-      subType:
-        payload.category === 'Tabungan dan investasi' ? payload.subType || 'Tabungan' : '',
+      subType: /tabungan|investasi/i.test(payload.category)
+        ? payload.subType || 'Tabungan'
+        : '',
       paymentMethod: payload.paymentMethod,
       amount: payload.amount,
       notes: (payload.notes ?? '').trim(),
@@ -206,8 +211,11 @@ export const localStore = {
           if (filters.startDate && item.date < filters.startDate) return false;
           if (filters.endDate && item.date > filters.endDate) return false;
         }
-        if (filters.category && filters.category !== 'ALL' && item.category !== filters.category) {
-          return false;
+        if (filters.category && filters.category !== 'ALL' && filters.category.trim()) {
+          const catQuery = filters.category.trim().toLowerCase();
+          if (!item.category.toLowerCase().includes(catQuery)) {
+            return false;
+          }
         }
         if (filters.search && filters.search.trim()) {
           const q = filters.search.trim().toLowerCase();
@@ -284,11 +292,12 @@ export const localStore = {
     return false;
   },
 
-  getSummary(month: number, year: number): {
+  getSummary(month: number, year: number, lang: LanguageCode = 'id'): {
     summary: FinancialSummaryResponse;
     user: UserProfile;
   } {
     const ws = loadWorkspace();
+    const monthNames = MONTH_NAMES_BY_LANG[lang];
     const initialBalance = ws.profile.initialBalance || 0;
     const selectedKey = `${year}-${String(month).padStart(2, '0')}`;
     const prevDate = new Date(Date.UTC(year, month - 2, 1));
@@ -346,7 +355,7 @@ export const localStore = {
       allTimeExpense += exp.amount;
       if (ym <= selectedKey) cumulativeExpenseUpToSelected += exp.amount;
 
-      const isSavingOrInvest = exp.category === 'Tabungan dan investasi';
+      const isSavingOrInvest = /tabungan|investasi/i.test(exp.category);
       const isInvestment =
         isSavingOrInvest &&
         (exp.subType === 'Investasi' ||
@@ -399,7 +408,7 @@ export const localStore = {
         key,
         month: m,
         year: y,
-        label: `${MONTH_NAMES_ID[m - 1].slice(0, 3)} ${String(y).slice(2)}`,
+        label: `${monthNames[m - 1].slice(0, 3)} ${String(y).slice(2)}`,
         income: inc,
         expense: exp,
         netCashFlow: inc - exp,
@@ -415,7 +424,7 @@ export const localStore = {
       runningBalance += b.income - b.expense;
       return {
         month: b.month,
-        monthName: MONTH_NAMES_ID[b.month - 1],
+        monthName: monthNames[b.month - 1],
         year: b.year,
         totalIncome: b.income,
         totalExpense: b.expense,

@@ -9,8 +9,10 @@ import {
   LogIn,
   LogOut,
   Menu,
+  Moon,
   Plus,
   Settings,
+  Sun,
   X,
 } from 'lucide-react';
 import {
@@ -31,7 +33,6 @@ import { localStore } from './lib/localStore.ts';
 import {
   ExpenseItem,
   IncomeItem,
-  MONTH_NAMES_ID,
   UserProfile,
 } from './shared/finance.ts';
 import { DashboardView } from './components/DashboardView.tsx';
@@ -40,11 +41,32 @@ import { MonthlyReportsView } from './components/MonthlyReportsView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { ExpenseModal, IncomeModal } from './components/TransactionModals.tsx';
 import { ConfirmDialog } from './components/ConfirmDialog.tsx';
+import { MonthYearPicker } from './components/MonthYearPicker.tsx';
+import { LanguageCode, UI_TEXT, getInitialLanguage } from './lib/i18n.ts';
 
 type NavTab = 'dashboard' | 'expenses' | 'income' | 'reports' | 'settings';
+type ThemeMode = 'light' | 'dark';
+
+function getInitialTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem('pft_theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return 'light';
+}
 
 export default function App() {
   const now = new Date();
+
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const isDark = theme === 'dark';
+  const [lang, setLang] = useState<LanguageCode>(getInitialLanguage);
+  const t = UI_TEXT[lang];
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -66,7 +88,7 @@ export default function App() {
   const [dataError, setDataError] = useState<string | null>(null);
 
   const [txFilters, setTxFilters] = useState({
-    category: 'ALL',
+    category: '',
     search: '',
     startDate: '',
     endDate: '',
@@ -84,6 +106,28 @@ export default function App() {
     | null
   >(null);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+    try {
+      localStorage.setItem('pft_theme', theme);
+    } catch {
+      // ignore storage errors
+    }
+  }, [theme, isDark]);
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    try {
+      localStorage.setItem('pft_lang', lang);
+    } catch {
+      // ignore storage errors
+    }
+  }, [lang]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   // 1. Subscribe to Firebase Auth State
   useEffect(() => {
@@ -158,7 +202,16 @@ export default function App() {
   const isCloudMode = Boolean(authUser);
 
   // Derived active profile, summary, and filtered lists
-  const { profile, summary, expenses, incomes, monthlyExpenses, monthlyIncomes } = useMemo(() => {
+  const {
+    profile,
+    summary,
+    expenses,
+    incomes,
+    monthlyExpenses,
+    monthlyIncomes,
+    availableExpenseCategories,
+    availableIncomeCategories,
+  } = useMemo(() => {
     if (isCloudMode) {
       const activeProfile: UserProfile = fbProfile ?? {
         id: 1,
@@ -197,7 +250,8 @@ export default function App() {
           fbExpenses,
           fbIncomes,
           selectedMonth,
-          selectedYear
+          selectedYear,
+          lang
         ),
         expenses: filterExpensesList(fbExpenses, filterParams),
         incomes: filterIncomesList(fbIncomes, filterParams),
@@ -209,12 +263,18 @@ export default function App() {
           month: selectedMonth,
           year: selectedYear,
         }),
+        availableExpenseCategories: Array.from(
+          new Set(fbExpenses.map((e) => e.category).filter(Boolean))
+        ).sort(),
+        availableIncomeCategories: Array.from(
+          new Set(fbIncomes.map((i) => i.category).filter(Boolean))
+        ).sort(),
       };
     }
 
     // Local guest fallback when not signed in
     void localVersion;
-    const localSummaryRes = localStore.getSummary(selectedMonth, selectedYear);
+    const localSummaryRes = localStore.getSummary(selectedMonth, selectedYear, lang);
     const filterParams = txFilters.useMonthScope
       ? {
           month: selectedMonth,
@@ -236,6 +296,12 @@ export default function App() {
       incomes: localStore.listIncomes(filterParams),
       monthlyExpenses: localStore.listExpenses({ month: selectedMonth, year: selectedYear }),
       monthlyIncomes: localStore.listIncomes({ month: selectedMonth, year: selectedYear }),
+      availableExpenseCategories: Array.from(
+        new Set(localStore.listExpenses({}).map((e) => e.category).filter(Boolean))
+      ).sort(),
+      availableIncomeCategories: Array.from(
+        new Set(localStore.listIncomes({}).map((i) => i.category).filter(Boolean))
+      ).sort(),
     };
   }, [
     isCloudMode,
@@ -247,6 +313,7 @@ export default function App() {
     selectedMonth,
     selectedYear,
     txFilters,
+    lang,
   ]);
 
   const handleSignIn = async () => {
@@ -379,35 +446,24 @@ export default function App() {
     []
   );
 
-  const currentYear = now.getFullYear();
-  const yearOptions = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1];
-
-  const pageTitleMap: Record<NavTab, string> = {
-    dashboard: 'Dashboard',
-    expenses: 'Transactions / Expenses',
-    income: 'Transactions / Income',
-    reports: 'Monthly Reports',
-    settings: 'Settings',
-  };
-
   const sidebarContent = (
-    <div className="flex h-full flex-col justify-between bg-white">
+    <div className="flex h-full flex-col justify-between bg-white dark:bg-slate-900">
       <div>
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <span className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+          <span className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap dark:text-slate-100">
             Personal Finance
           </span>
           <button
             type="button"
             onClick={() => setMobileMenuOpen(false)}
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden"
-            aria-label="Tutup navigasi"
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden dark:text-slate-400 dark:hover:bg-slate-800"
+            aria-label={t.nav.closeMenu}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <nav className="space-y-1 p-3" aria-label="Menu utama">
+        <nav className="space-y-1 p-3" aria-label="Main navigation">
           <button
             type="button"
             onClick={() => {
@@ -416,17 +472,17 @@ export default function App() {
             }}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === 'dashboard'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
             }`}
           >
             <LayoutDashboard className="h-4 w-4 shrink-0" />
-            Dashboard
+            {t.nav.dashboard}
           </button>
 
           <div className="pt-2">
-            <p className="px-3 pb-1.5 text-xs font-semibold text-slate-400">
-              Transactions
+            <p className="px-3 pb-1.5 text-xs font-semibold text-slate-400 dark:text-slate-500">
+              {t.nav.transactionsGroup}
             </p>
             <button
               type="button"
@@ -436,12 +492,12 @@ export default function App() {
               }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'expenses'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
               }`}
             >
               <ArrowUpRight className="h-4 w-4 shrink-0" />
-              Expenses
+              {t.nav.expenses}
             </button>
             <button
               type="button"
@@ -451,12 +507,12 @@ export default function App() {
               }}
               className={`mt-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'income'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
               }`}
             >
               <ArrowDownLeft className="h-4 w-4 shrink-0" />
-              Income
+              {t.nav.income}
             </button>
           </div>
 
@@ -469,12 +525,12 @@ export default function App() {
               }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'reports'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
               }`}
             >
               <BarChart3 className="h-4 w-4 shrink-0" />
-              Monthly Reports
+              {t.nav.reports}
             </button>
 
             <button
@@ -485,226 +541,191 @@ export default function App() {
               }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap ${
                 activeTab === 'settings'
-                  ? 'bg-slate-900 text-white'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
               }`}
             >
               <Settings className="h-4 w-4 shrink-0" />
-              Settings
+              {t.nav.settings}
             </button>
           </div>
         </nav>
       </div>
 
-      <div className="border-t border-slate-200 p-4 space-y-3">
+      <div className="border-t border-slate-200 p-4 space-y-3 dark:border-slate-800">
         <div className="flex items-center gap-3">
           {profile.photoUrl ? (
             <img
               src={profile.photoUrl}
               alt={profile.displayName}
-              className="h-9 w-9 shrink-0 rounded-full border border-slate-200 object-cover"
+              className="h-9 w-9 shrink-0 rounded-full border border-slate-200 object-cover dark:border-slate-700"
               referrerPolicy="no-referrer"
             />
           ) : (
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
               {(profile.displayName || 'PF')[0].toUpperCase()}
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-slate-900">
-              {profile.displayName || 'Personal Finance'}
+            <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
+              {profile.displayName || t.sidebar.guestName}
             </p>
-            <p className="flex items-center gap-1 truncate text-[11px] text-slate-500">
+            <p className="flex items-center gap-1 truncate text-[11px] text-slate-500 dark:text-slate-400">
               <Database className="h-3 w-3 shrink-0" />
-              {isCloudMode ? 'Firebase Firestore' : 'Penyimpanan Lokal'}
+              {isCloudMode ? t.sidebar.cloudMode : t.sidebar.localMode}
             </p>
           </div>
         </div>
-
-        {isCloudMode ? (
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={authBusy}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Keluar
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSignIn}
-            disabled={authBusy}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
-          >
-            <LogIn className="h-3.5 w-3.5" />
-            {authBusy ? 'Menghubungkan...' : 'Masuk dengan Google'}
-          </button>
-        )}
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex">
-      <aside className="no-print hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:block lg:sticky lg:top-0 lg:h-screen">
+    <div className="min-h-screen bg-slate-50 text-slate-900 lg:flex dark:bg-slate-950 dark:text-slate-100">
+      <aside className="no-print hidden w-64 shrink-0 border-r border-slate-200 bg-white lg:block lg:sticky lg:top-0 lg:h-screen dark:border-slate-800 dark:bg-slate-900">
         {sidebarContent}
       </aside>
 
       {mobileMenuOpen && (
         <div className="no-print fixed inset-0 z-50 flex lg:hidden">
           <div
-            className="fixed inset-0 bg-slate-900/40"
+            className="fixed inset-0 bg-slate-900/40 dark:bg-black/60"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <aside className="relative z-10 w-72 max-w-[82vw] border-r border-slate-200 bg-white">
+          <aside className="relative z-10 w-72 max-w-[82vw] border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
             {sidebarContent}
           </aside>
         </div>
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
+        <header className="no-print sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:px-6 dark:border-slate-800 dark:bg-slate-900/95">
+          <div className="flex items-center lg:flex-1">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 lg:hidden"
-              aria-label="Buka menu navigasi"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 lg:hidden dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              aria-label={t.nav.openMenu}
             >
               <Menu className="h-4 w-4" />
             </button>
-            <h1 className="truncate text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
-              {pageTitleMap[activeTab]}
-            </h1>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {(activeTab === 'dashboard' ||
-              activeTab === 'expenses' ||
-              activeTab === 'income') && (
-              <div className="hidden md:flex items-center gap-1.5">
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                  aria-label="Pilih bulan"
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:outline-none"
+          {(activeTab === 'dashboard' ||
+            activeTab === 'expenses' ||
+            activeTab === 'income') && (
+            <div className="hidden md:flex items-center justify-center shrink-0">
+              <MonthYearPicker
+                month={selectedMonth}
+                year={selectedYear}
+                onChange={(m, y) => {
+                  setSelectedMonth(m);
+                  setSelectedYear(y);
+                }}
+                align="center"
+                lang={lang}
+              />
+            </div>
+          )}
+
+          <div className="ml-auto flex items-center justify-end gap-2 shrink-0 lg:flex-1">
+            {activeTab !== 'expenses' && activeTab !== 'income' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingIncome(null);
+                    setIncomeModalOpen(true);
+                  }}
+                  className="hidden sm:inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-emerald-600/30 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
                 >
-                  {MONTH_NAMES_ID.map((m, idx) => (
-                    <option key={m} value={idx + 1}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(Number(e.target.value))}
-                  aria-label="Pilih tahun"
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 focus:border-slate-900 focus:outline-none"
+                  <Plus className="h-3.5 w-3.5" />
+                  {t.header.addIncome}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingExpense(null);
+                    setExpenseModalOpen(true);
+                  }}
+                  className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
                 >
-                  {yearOptions.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <Plus className="h-3.5 w-3.5" />
+                  <span className="hidden xs:inline">{t.header.addExpensePrefix}</span>
+                  {t.header.addExpense}
+                </button>
+              </>
             )}
-
-            <button
-              type="button"
-              onClick={() => {
-                setEditingIncome(null);
-                setIncomeModalOpen(true);
-              }}
-              className="hidden sm:inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-emerald-600/30 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 whitespace-nowrap"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Pemasukan
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setEditingExpense(null);
-                setExpenseModalOpen(true);
-              }}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 whitespace-nowrap"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span className="hidden xs:inline">Catat </span>Pengeluaran
-            </button>
 
             {isCloudMode ? (
               <button
                 type="button"
                 onClick={handleSignOut}
                 disabled={authBusy}
-                title={`Masuk sebagai ${profile.email || profile.displayName}`}
-                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+                title={`${t.header.signedInAs} ${profile.email || profile.displayName}`}
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 <LogOut className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Keluar</span>
+                <span className="hidden sm:inline">{t.header.logout}</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleSignIn}
                 disabled={authBusy}
-                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+                className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
               >
                 <LogIn className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">
-                  {authBusy ? 'Memproses...' : 'Login Google'}
+                  {authBusy ? t.header.loggingIn : t.header.login}
                 </span>
-                <span className="sm:hidden">{authBusy ? '...' : 'Login'}</span>
+                <span className="sm:hidden">
+                  {authBusy ? t.header.mobileLoggingIn : t.header.login}
+                </span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={isDark ? t.header.enableLight : t.header.enableDark}
+              title={isDark ? t.header.lightMode : t.header.darkMode}
+              className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
           </div>
         </header>
 
         {(activeTab === 'dashboard' ||
           activeTab === 'expenses' ||
           activeTab === 'income') && (
-          <div className="no-print flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 md:hidden">
-            <div className="flex items-center gap-1.5">
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                aria-label="Pilih bulan"
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
-              >
-                {MONTH_NAMES_ID.map((m, idx) => (
-                  <option key={m} value={idx + 1}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                aria-label="Pilih tahun"
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
-              >
-                {yearOptions.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingIncome(null);
-                setIncomeModalOpen(true);
+          <div className="no-print flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 md:hidden dark:border-slate-800 dark:bg-slate-900">
+            <MonthYearPicker
+              month={selectedMonth}
+              year={selectedYear}
+              onChange={(m, y) => {
+                setSelectedMonth(m);
+                setSelectedYear(y);
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-emerald-600/30 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 whitespace-nowrap sm:hidden"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Pemasukan
-            </button>
+              align="left"
+              compact
+              lang={lang}
+            />
+            {activeTab !== 'expenses' && activeTab !== 'income' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingIncome(null);
+                  setIncomeModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-emerald-600/30 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-800 whitespace-nowrap sm:hidden dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-300"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t.header.addIncome}
+              </button>
+            )}
           </div>
         )}
 
@@ -712,7 +733,7 @@ export default function App() {
           {dataError && (
             <div
               role="alert"
-              className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800"
+              className="mb-5 flex items-center justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/50 dark:text-rose-300"
             >
               <span className="break-words">{dataError}</span>
               <button
@@ -720,7 +741,7 @@ export default function App() {
                 onClick={() => setDataError(null)}
                 className="shrink-0 font-semibold hover:underline"
               >
-                Tutup
+                {t.header.closeAlert}
               </button>
             </div>
           )}
@@ -730,6 +751,8 @@ export default function App() {
               summary={summary}
               user={profile}
               loading={loadingCloud}
+              isDark={isDark}
+              lang={lang}
               onAddExpense={() => {
                 setEditingExpense(null);
                 setExpenseModalOpen(true);
@@ -751,7 +774,10 @@ export default function App() {
               selectedYear={selectedYear}
               expenses={expenses}
               incomes={incomes}
+              availableExpenseCategories={availableExpenseCategories}
+              availableIncomeCategories={availableIncomeCategories}
               loading={loadingCloud}
+              lang={lang}
               onAddExpense={() => {
                 setEditingExpense(null);
                 setExpenseModalOpen(true);
@@ -787,6 +813,8 @@ export default function App() {
                 setSelectedYear(y);
               }}
               loading={loadingCloud}
+              isDark={isDark}
+              lang={lang}
             />
           )}
 
@@ -794,9 +822,8 @@ export default function App() {
             <SettingsView
               user={profile}
               isCloudMode={isCloudMode}
-              authBusy={authBusy}
-              onSignIn={handleSignIn}
-              onSignOut={handleSignOut}
+              lang={lang}
+              onLanguageChange={setLang}
               onSaveSettings={async (payload) => {
                 if (authUser) {
                   await firestoreStore.updateSettings(authUser, payload);
@@ -814,6 +841,7 @@ export default function App() {
         open={expenseModalOpen}
         editing={editingExpense}
         currency={profile.currency || 'IDR'}
+        lang={lang}
         onClose={() => {
           setExpenseModalOpen(false);
           setEditingExpense(null);
@@ -825,6 +853,7 @@ export default function App() {
         open={incomeModalOpen}
         editing={editingIncome}
         currency={profile.currency || 'IDR'}
+        lang={lang}
         onClose={() => {
           setIncomeModalOpen(false);
           setEditingIncome(null);
@@ -836,19 +865,20 @@ export default function App() {
         open={deleteTarget !== null}
         title={
           deleteTarget?.kind === 'expense'
-            ? 'Hapus Catatan Pengeluaran?'
-            : 'Hapus Catatan Pemasukan?'
+            ? t.confirm.deleteExpenseTitle
+            : t.confirm.deleteIncomeTitle
         }
         description={
           deleteTarget?.kind === 'expense'
-            ? `Pengeluaran "${deleteTarget.item.description}" akan dihapus permanen dan saldo akan dihitung ulang.`
+            ? t.confirm.deleteExpenseDesc(deleteTarget.item.description)
             : deleteTarget
-            ? `Pemasukan "${deleteTarget.item.source}" akan dihapus permanen dan saldo akan dihitung ulang.`
+            ? t.confirm.deleteIncomeDesc(deleteTarget.item.source)
             : ''
         }
-        confirmLabel="Ya, Hapus"
+        confirmLabel={t.confirm.confirmDelete}
         tone="danger"
         loading={deleting}
+        lang={lang}
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />

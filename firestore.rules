@@ -115,27 +115,6 @@ service cloud.firestore {
         data.category is string &&
         data.category.size() >= 1 &&
         data.category.size() <= 40 &&
-        (
-          (data.type == 'expense' && data.category in [
-            'Makanan dan minuman',
-            'Transportasi',
-            'Kebutuhan sehari-hari',
-            'Pendidikan',
-            'Hiburan',
-            'Kesehatan',
-            'Tagihan',
-            'Orang tua',
-            'Tabungan dan investasi',
-            'Lainnya'
-          ]) ||
-          (data.type == 'income' && data.category in [
-            'Gaji',
-            'Freelance',
-            'Bisnis',
-            'Bonus',
-            'Pendapatan lainnya'
-          ])
-        ) &&
         data.note is string &&
         data.note.size() <= 300 &&
         data.date is string &&
@@ -147,7 +126,7 @@ service cloud.firestore {
         data.subType is string &&
         data.subType.size() <= 20 &&
         data.subType in ['', 'Tabungan', 'Investasi'] &&
-        ((data.type == 'expense' && data.category == 'Tabungan dan investasi') || data.subType == '') &&
+        (data.type == 'expense' || data.subType == '') &&
         data.paymentMethod is string &&
         data.paymentMethod.size() <= 32 &&
         (
